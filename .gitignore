@@ -1,4 +1,11 @@
+
+# R files
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
+._bestageing2022.Rproj
+
+# dirs
+data/
+output/
