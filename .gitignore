@@ -5,6 +5,7 @@
 .RData
 .Ruserdata
 ._bestageing2022.Rproj
+._*
 
 # dirs
 data/
