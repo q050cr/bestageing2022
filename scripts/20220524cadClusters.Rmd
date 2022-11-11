@@ -1,0 +1,195 @@
+---
+title: "Best Ageing | CAD Clusters"
+author: | 
+        | christoph.reich@med.uni-heidelberg.de 
+        | benjamin.meder@med.uni-heidelberg.de
+        | Klinik für Kardiologie, Angiologie und Pneumologie
+        | Universitätsklinikum Heidelberg
+        | 
+date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
+knit: (function(input, ...) {
+    rmarkdown::render(
+      input,
+      output_file = paste0(  
+        Sys.Date(), '-',  'bestageing_cadClusters', '.html'
+      ),
+      output_dir = "output-markdown",  
+      envir = globalenv()
+    )
+  })
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    df_print: kable
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(tidymodels)
+
+library(lubridate)  # datetimes
+library(factoextra)  # plotting of kmeans
+
+
+theme_set(ggthemes::theme_few()) 
+
+# https://www.tidymodels.org/learn/statistics/k-means/
+# This vignette would have been better .. 
+
+  # ggthemes::theme_few()+
+  # ggthemes::scale_colour_few()
+```
+
+
+```{r load data, include=FALSE, warning=FALSE}
+# load datat
+joined_hc_mirna <- readRDS("../../BestAgeing/data_new/joined_hc_mirna.rds")   # loads data, created in rwh-data-analysis-BA.R
+```
+
+![AG Meder](../../img/meder_presentation_heart.png)
+
+# k-means Clustering of CAD
+
+```{r k-means-clustering}
+# kmeans.hcm<- kmeans(scale(df.first.hc[, 12:26]), centers=3, iter.max = 10, nstart = 1,
+#        algorithm = c("Hartigan-Wong", "Lloyd", "Forgy",
+#                      "MacQueen"), trace=FALSE)
+set.seed(123)
+x<- scale(joined_hc_mirna[ ,14:28])
+
+fviz_nbclust(x, kmeans, method = "wss") +
+  geom_vline(xintercept = 6, linetype = 2)
+```
+
+
+```{r k-means-clustering-for-all-6-clusterings, figures-side, fig.show='hold', out.width="33%"}
+set.seed(123)
+for(i in 2:6) {  # create 2 to 6 clusters
+  title_plot <- paste("k = ", i)
+  kmeans.ba <- kmeans(x, centers = i, iter.max = 1000, nstart = 25)
+  
+  ### name clusters
+  ordered.index <- order(table(kmeans.ba$cluster), decreasing=TRUE)
+  for (j in 2:max(kmeans.ba$cluster)) {
+    cluster.name <- paste("Cluster ", j, sep = "")
+    kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[1]] <- "No CAD"
+    kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[j]] <- cluster.name
+  }
+  
+  # plot clusters
+  print(fviz_cluster(object = kmeans.ba, data = joined_hc_mirna[ ,14:28],
+                     geom = "point", 
+                     #ellipse.type = "euclid",
+                     alpha =0.5,
+                     shape = 16,
+                     show.legend=FALSE) +
+          ggtitle(title_plot)+
+          ggthemes::theme_few()+
+          ggthemes::scale_color_few()+
+          theme(legend.title=element_blank())
+  )
+}
+
+set.seed(123)
+x<- scale(joined_hc_mirna[ ,14:28])
+
+centers<- 6
+kmeans.ba.all <- list()
+for (i in 2:centers) { # create kmeans for 2:6 centers
+  kmeans.ba.all[[i]] <- kmeans(x, centers=i, iter.max = 1000, nstart = 25)
+}
+```
+
+## Choose clusters
+
+We choose both 4 centers and 5 centers for k-means clustering:
+
+```{r k-means-clustering4c-5c, figures-side, fig.show='hold', out.width="50%"}
+set.seed(123)
+### A
+centers=4
+kmeans.ba4 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.ba4$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.ba4$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[1]] <- "No CAD"
+  kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.ba4)
+
+aggregate(joined_hc_mirna[ ,14:28], by=list(cluster=kmeans.ba4$cluster), mean)
+# plot
+fviz_cluster(object = kmeans.ba4, data = joined_hc_mirna[ ,14:28],
+             geom = "point", 
+             #ellipse.type = "euclid",
+             alpha =0.5,
+             shape = 16,
+             show.legend=FALSE) +
+  ggtitle(title_plot)+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  theme(legend.title=element_blank())
+
+joined_hc_mirna <- joined_hc_mirna %>% 
+  mutate(kmeans4centers = kmeans.ba4$cluster)
+#mutate(date_of_hc = as.Date(date_of_hc))
+
+#-------------------#
+### B | 5 clusters ------------------------------
+
+centers=5
+kmeans.ba5 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.ba5$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.ba5$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[1]] <- "No CAD"
+  kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.ba5)
+
+aggregate(joined_hc_mirna[ ,14:28], by=list(cluster=kmeans.ba5$cluster), mean)
+# plot
+fviz_cluster(object = kmeans.ba5, data = joined_hc_mirna[ ,14:28],
+             geom = "point", 
+             #ellipse.type = "euclid",
+             alpha =0.5,
+             shape = 16,
+             show.legend=FALSE) +
+  ggtitle(title_plot)+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  theme(legend.title=element_blank())  
+
+joined_hc_mirna <- joined_hc_mirna %>% 
+  mutate(kmeans5centers = kmeans.ba5$cluster)
+```
+
+
+# Ad Modeling 
+
+```{r edit-data}
+joined_hc_mirna %>% 
+  select(best_ageing_code, disease, age, weight, sex_factor, kmeans4centers, kmeans5centers,
+         # miRNAS
+         49:161
+         ) %>% 
+  mutate(kmeans4to2 = ifelse(kmeans4centers == "No CAD", 0,1),
+         kmeans5to2 = ifelse(kmeans5centers == "No CAD", 0,1)) %>% 
+  drop_na() -> hc_mirna_model_dat
+```
+

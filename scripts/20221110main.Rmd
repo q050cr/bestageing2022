@@ -1,0 +1,878 @@
+---
+title: "Best Ageing - miRNA analysis"
+author: | 
+        | christoph.reich@med.uni-heidelberg.de 
+        | benjamin.meder@med.uni-heidelberg.de
+        | Klinik für Kardiologie, Angiologie und Pneumologie
+        | Universitätsklinikum Heidelberg
+        | 
+date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
+params:
+  date: !r Sys.Date()
+  doc_title: "The Default Title"
+  disease: "dcm"   # possibilities: acs, cad, hfref, dcm
+  analysis: "selected"  # possibilities: selected, full
+knit: (function(input, ...) {
+    rmarkdown::render(
+      input,
+      output_file = paste0(  
+        Sys.Date(), '_',  'bestageing_mirna', '.html'
+      ),
+      output_dir = '../reports',  
+      envir = globalenv()
+    )
+  })
+output: 
+  html_document:
+    theme: paper
+    toc: true
+    #number_sections: true
+    toc_float: true
+    toc_depth: 2
+    df_print: kable
+    latex_engine: xelatex
+bibliography: ../references/refs_ba.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(fig.path = "figures-ba/")
+
+# rm(list=ls())
+
+library(readxl)
+library(janitor)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(purrr)
+library(ggplot2)
+library(ggthemes)
+library(skimr)
+library(tableone)
+library(tictoc)
+library(pROC)
+library(tidymodels)
+library(workflowsets)
+library(baguette)
+library(rules)
+library(finetune)
+tidymodels_prefer()
+caching <- FALSE
+
+cores <- parallel::detectCores()
+if (!grepl("mingw32", R.Version()$platform)) {
+   library(doMC)
+   registerDoMC(cores = cores)
+} else {
+   library(doParallel)
+   cl <- makePSOCKcluster(cores)
+   registerDoParallel(cl)
+}
+```
+
+![AG Meder](../../img/meder_presentation_heart.png)
+
+# Discussion
+
+- Issues open for discussion
+
+# Version Update
+
+The new report version includes: 
+
+- First analysis
+
+# Introduction
+
+```{r load-mirna-data, include=FALSE, warning=FALSE}
+## MIRNA DAT
+model_data1 <- clean_names(readRDS(file = "../../BestAgeing/data_new/model_data1.rds"))  # has also multiclass col + diagnoses
+load(file = "../../BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
+load(file = "../../BestAgeing/data/data.rda")  # "UKL-HD" n=731
+all_mirnas <- clean_names(mirnas)
+names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
+mirnas_disease <- clean_names(data)
+names(mirnas_disease) <- str_replace(string = names(mirnas_disease), pattern = "mi_r", replacement = "mir")
+
+#
+rm(data, mirnas)
+```
+
+
+```{r load-mirnas-from_research, include=FALSE, warning=FALSE}
+# create vector of described mirnas
+load("../../BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
+# check if all mirnas are named the same
+researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
+  str_replace(pattern = "mi_r", replacement = "mir")
+# researchMiRNAAccession$miRNAName_v21[(!researchMiRNAAccession$miRNAName_v21 %in% colnames(all_mirnas))] 
+## "hsa_mir_106a_5p" --> should be --> "hsa_mir_106b_5p"
+## all_mirnas[,(str_detect(string = colnames(all_mirnas), pattern = "106"))]
+## researchMiRNAAccession[which(!researchMiRNAAccession$miRNAName_v21 %in% colnames(all_mirnas)),]
+researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hsa_mir_106a_5p"] <- "hsa_mir_106b_5p"
+```
+
+
+```{r load-metadat, include=FALSE, warning=FALSE}
+## DIAGNOSES DAT
+load(file = "../../BestAgeing/data/diagnoses_df.rda")
+#load(file = "../../BestAgeing/data/diagnoses.rda")
+
+## SURVIVAL DAT
+survival_dat <- clean_names(readRDS(file = "../../XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds")) %>% 
+  select(-c(
+    last_name, first_name, full_name, dob, gender, ish_id, hkdb_indicator, 
+    duplicates_in_ba_patients, city, gemeindeschlussel, bundesland, strasse, 
+    hausnummer, sterbeort, standesamt, probeabnahme, abfragezeitpunkt, sterbetag)) %>% 
+  rename(status = verstorben, 
+         pat_id = best_ageing_code_y)
+
+## metadata from DB
+# https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
+load(file = "../../BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+
+# cath data? "hkdb"
+
+## load all original metadat xlsx files again to make sure that also overlapped patients (e.g. dcm+cad) are in each group
+control_ids <- read_excel("../../BestAgeing/data/pheno_controls.xlsx") %>% 
+  dplyr::pull(BestAgeingCode)
+
+# create parameter specific {disease}_ids
+filename <- paste0("../../BestAgeing/data/pheno_", params$disease, ".xlsx")
+disease_vector <- paste0(params$disease, "_ids")
+assign(x = disease_vector, 
+       value = read_excel(filename) %>% 
+  dplyr::pull(BestAgeingCode))
+
+
+disease_ident_df <- tibble(pat_id = c(eval(as.symbol(disease_vector)),control_ids), 
+       disease = c(rep(params$disease, length(eval(as.symbol(disease_vector)))),
+                   rep("control", length(control_ids)))
+)
+```
+
+
+```{r prepare-combine-data, include=FALSE, warning=FALSE}
+data01 <- all_mirnas %>% 
+  # filter control patients and from {disease}_ids
+  filter(pat_id %in% !!sym(disease_vector) |
+           pat_id %in% control_ids
+            ) %>% 
+  # bind age and gender from metadata
+  left_join(clean_all_meta %>% select(patID, age, sex), 
+            by = c("pat_id"= "patID") ) %>% 
+  left_join(disease_ident_df, by = "pat_id") %>% 
+  relocate(c(disease, age, sex), .after = pat_id) %>% 
+  mutate(disease = factor(disease),
+         sex = factor(sex) ) %>% 
+  as_tibble()
+
+selected_mirna_dat <- paste0("data01_", length(researchMiRNAAccession$miRNAName_v21), "mirnas")  
+assign(x = selected_mirna_dat, 
+       value = data01 %>% 
+         select(pat_id, disease, age, sex, researchMiRNAAccession$miRNAName_v21))
+
+# eval(as.symbol(selected_mirna_dat))
+
+if (params$analysis == "selected") {
+  no.mirnas <- length(researchMiRNAAccession$miRNAName_v21)
+  text_intro <- paste0(no.mirnas, " miRNAs, that have been investigated in cardiac pathophysiology")
+} else{
+  no.mirnas <- ncol(all_mirnas)-1  # minus pat_id
+  text_intro <- paste0(no.mirnas, " miRNAs, that have been investigated in cardiac pathophysiology")
+}
+
+text_disease <- stringr::str_to_upper(params$disease)
+```
+
+## Analysis population
+
+Our goal is to investigate the diagnostic ability of miRNAs in `r text_disease`. In this analysis we are looking at `r text_intro`.
+
+*   **Patient population:** Patients from the BestAgeing study ($n_{total}=$ `r nrow(data01)`)
+*   **Disease:** `r text_disease` ($n_{disease}=$ `r length(eval(as.symbol(disease_vector)))`) vs controls (($n_{control}=$ `r length(control_ids)`))
+*   **Input:** `r no.mirnas` miRNAs adjusted for `age` and `sex`
+*   **Output:** Probability of being diagnosed with `r text_disease`
+*   **Algorithms:**
+    + Logistic Regression with Elastic net regularization 
+    + KNN
+    + Random Forest
+    + Support Vector Machine
+    + Neural Net
+
+
+
+\clearpage
+
+# Model
+
+## Screening many models
+
+A good strategy is to spend some initial effort trying a variety of modeling approaches, determine what works best, then invest additional time tweaking/ optimizing a small set of models. 
+\
+We are going to explore the performance of the following classification algorithms: 
+
+- KNN
+- Penalized logistic regression
+- Random forest
+- XGBoost
+- Support Vector Machines
+- Neural net
+
+## Training Data
+
+### Initial Split
+
+We can start by splitting our data into training and testing sets. We also remove the "work-up" columns because decision should be made before workup can be done. 
+
+```{r split-data}
+set.seed(123)
+
+if (params$analysis == "selected") {
+  # only 114 mirnas in analysis
+  modeldat <- eval(as.symbol(selected_mirna_dat)) %>%  # %>% mutate(c0_tnt = log(c0_tnt))
+         # do not include workup in model data
+    select(-starts_with("wu_"))
+} else{
+  # full analysis with all mirnas
+  modeldat <- data01 %>%  # %>% mutate(c0_tnt = log(c0_tnt))
+         # do not include workup in model data
+    select(-starts_with("wu_"))
+}
+
+dat_split <- rsample::initial_split(modeldat, strata = disease)
+dat_train <- training(dat_split)
+dat_test <- testing(dat_split)
+
+folds <- 
+  vfold_cv(dat_train, strata = disease, v = 5)
+```
+
+### Preprocessing Recipe
+
+Next we build recipes for data preprocessing. Some models (notably neural networks, K-NN, and SVM) require predictors that have been centered and scaled. For other models, a traditional response surface design model expansion (i.e., quadratic and two-way interactions) is a good idea. 
+
+```{r recipe}
+normalized_rec <- 
+  recipe(disease ~ ., data = dat_train) %>%
+  ### https://recipes.tidymodels.org/articles/Ordering.html
+  #  To make sure we don’t get any unexpected results, it’s best to use 
+  #  the following ordering of high-level transformations:
+  #     Skewness Transformations - step_YeoJohnson()
+  #     Centering, Scaling, or Normalization on Numeric Predictors
+  #     Dummy Variables for Categorical Data
+  update_role(pat_id, new_role="ID") %>% 
+  step_zv(all_predictors()) %>%  
+  step_impute_mean(all_numeric()) %>% 
+  step_impute_mode(all_nominal(), -disease) %>% 
+  step_corr(all_numeric(), threshold = 0.9) %>% 
+  step_YeoJohnson() %>% 
+  step_normalize(all_numeric()) %>%  
+  step_dummy(all_nominal_predictors(),-disease)
+
+poly_rec <- 
+  recipe(disease ~ ., data = dat_train) %>%
+  update_role(pat_id, new_role="ID") %>% 
+  step_zv(all_predictors()) %>%  
+  step_impute_mean(all_numeric()) %>% 
+  step_impute_mode(all_nominal(), -disease) %>% 
+  step_corr(all_numeric(), threshold = 0.9) %>% 
+  step_normalize(all_numeric()) %>%  
+  step_poly(all_numeric_predictors()) %>% 
+  step_dummy(all_nominal_predictors(),-disease) %>% 
+  step_interact( ~all_predictors():all_predictors())
+
+simple_rec <- 
+  recipe(disease ~ ., data = dat_train) %>%
+  update_role(pat_id, new_role="ID") %>% 
+  # ZERO VARIANCE
+  step_zv(all_predictors()) %>%  
+  # IMPUTE
+  step_impute_mean(all_numeric()) %>% 
+  step_impute_mode(all_nominal(), -disease) %>% 
+  # DECORRELATE
+  step_corr(all_numeric(), threshold = 0.9) %>% 
+  step_dummy(all_nominal_predictors(),-disease)
+```
+
+The above mentioned preprocessing specifications can be recycled across models and can be used on the test data afterwards easily. 
+
+### Define model engines and set the tuning specifications
+
+```{r parsnip-specs}
+#parsnip::set_dependency("kknn", "glmnet", "ranger", "naivebayes") #, "kernlab", "xgboost", "nnet")
+
+nearest_neighbor_kknn_spec <-
+  nearest_neighbor(neighbors = tune(), weight_func = tune(), 
+                   dist_power = tune()) %>%
+  set_engine('kknn') %>%
+  set_mode('classification')
+
+logistic_reg_glmnet_spec <-
+  logistic_reg(penalty = tune(), mixture = tune()) %>%
+  set_mode("classification") %>% 
+  set_engine('glmnet')
+
+rand_forest_ranger_spec <-
+  rand_forest(mtry = tune(), min_n = tune()) %>%
+  set_engine('ranger') %>%
+  set_mode('classification')
+
+naive_Bayes_naivebayes_spec <-
+  naive_Bayes(smoothness = tune(), Laplace = tune()) %>%
+  set_engine('naivebayes') %>% 
+  set_mode('classification')
+
+svm_linear_kernlab_spec <-
+  svm_linear(cost = tune(), margin = tune()) %>%
+  set_engine('kernlab') %>%
+  set_mode('classification')
+
+svm_poly_kernlab_spec <-
+  svm_poly(cost = tune(), degree = tune(), 
+           scale_factor = tune(), margin = tune()) %>%
+  set_engine('kernlab') %>%
+  set_mode('classification')
+
+svm_rbf_kernlab_spec <-
+  svm_rbf(cost = tune(), rbf_sigma = tune(), margin = tune()) %>%
+  set_engine('kernlab') %>%
+  set_mode('classification')
+
+boost_tree_xgboost_spec <-
+  boost_tree(tree_depth = tune(), trees = tune(), 
+             learn_rate = tune(), min_n = tune(), 
+             loss_reduction = tune(), sample_size = tune(), 
+             stop_iter = tune()) %>%
+  set_engine('xgboost') %>%
+  set_mode('classification')
+
+mlp_nnet_spec <-
+  mlp(hidden_units = tune(), penalty = tune(), 
+      epochs = tune()) %>%
+  set_engine('nnet') %>%
+  set_mode('classification')
+```
+
+### Workflow Set
+
+```{r workflows}
+## A
+normalized <- 
+  workflow_set(   # IDs are generated {name of preproc} + {name of model}
+    preproc = list(normalized = normalized_rec),
+    models = list(
+      KNN = nearest_neighbor_kknn_spec, 
+      SVM_radial = svm_rbf_kernlab_spec, 
+      SVM_poly = svm_poly_kernlab_spec, 
+      SVM_linear = svm_linear_kernlab_spec,
+      neural_network = mlp_nnet_spec
+    )
+  )
+
+## B
+simple <- 
+  workflow_set(
+    preproc = list(simple = simple_rec),
+    models = list(
+      #naive_bayes = naive_Bayes_naivebayes_spec,    ## ERROR when tuning "Error in pkgs$pkg[[1]] : subscript out of bounds"
+      RF = rand_forest_ranger_spec,
+      XGB = boost_tree_xgboost_spec
+    )
+  )
+
+## C
+with_features <- 
+  workflow_set(
+    preproc = list(full_quad = poly_rec),
+    models = list(
+      logistic_reg = logistic_reg_glmnet_spec,
+      KNN = nearest_neighbor_kknn_spec
+    )
+  )
+
+# normalized %>% extract_workflow(id = "normalized_KNN")
+
+## these objects are tibbles -> row binding does not affect the state of the sets
+### result is itself a workflow set
+
+all_workflows <- 
+  bind_rows(simple, normalized, with_features) %>% 
+  # make workflow IDs a little more simple:
+  mutate(wflow_id = gsub("(simple_)|(normalized_)", "", wflow_id))
+```
+
+### Tuning the models with small grid
+
+```{r}
+# the workflow_map() function will apply the same function to all of the workflows in the set
+## the default is fn="tune_grid"
+grid_ctrl <- 
+  control_grid(
+    save_pred = TRUE,
+    parallel_over = "everything",
+    save_workflow = TRUE
+  )
+
+time1 <- Sys.time()
+grid_results <- 
+  all_workflows %>% 
+  workflow_map(
+    seed = 20220908,
+    resamples = acs_folds,
+    grid = 25,
+    control = grid_ctrl
+  )
+time2 <- Sys.time()
+time.diff.grid <- time2-time1
+
+num_grid_models <- nrow(collect_metrics(grid_results, summarize = FALSE))
+```
+
+What do our `grid_results` look like?
+
+```{r workflow-sets-grid-print}
+#grid_results
+grid_results %>% 
+  rank_results() %>% 
+  filter(.metric == "roc_auc") %>% 
+  select(model, .config, roc_auc=mean, rank) -> rankings
+```
+
+```{r workflow-sets-plot-rank}
+autoplot(
+   grid_results,
+   rank_metric = "roc_auc",  # <- how to order models
+   metric = "roc_auc",       # <- which metric to visualize
+   select_best = TRUE     # <- one point per workflow
+) +
+  geom_text(aes(y = mean - 0.05, label = wflow_id), angle = 45, hjust = 1, size =3) +
+  lims(y = c(0.6, 1.0)) +
+  labs(title="Ranking models",
+       subtitle="Grid approach")+
+  ylab("ROC-AUC")+
+  ggthemes::theme_few()+
+  theme(legend.position = "none")
+
+# inspect hyperparameter results for specific model
+autoplot(grid_results, id = "full_quad_logistic_reg", metric = "roc_auc")+
+  ylab("ROC-AUC")+
+  labs(title="Hyperparameter Performance",
+       subtitle = "Penalized Logistic Regression")+
+  ggthemes::theme_few()
+```
+
+
+### Efficiently screening models
+
+```{r workflow-sets-race}
+library(finetune)
+
+race_ctrl <-
+   control_race(
+      save_pred = TRUE,
+      parallel_over = "everything",
+      save_workflow = TRUE
+   )
+
+time1 <- Sys.time()
+race_results <-  all_workflows %>%
+   workflow_map(
+      "tune_race_anova",
+      seed = 1503,
+      resamples = acs_folds,
+      grid = 25,
+      control = race_ctrl
+   )
+time2 <- Sys.time()
+time.diff.race <- time2-time1
+
+# race_results_time <-      ## asign time
+#    system.time(
+#       race_results <-     ## here asign results
+#          all_workflows %>% 
+#          workflow_map("tune_race_anova", 
+#                       seed = 1503,  resamples = acs_folds, 
+#                       grid = 25, 
+#                       control = race_ctrl
+#                       )
+#    )
+
+num_race_models <- sum(collect_metrics(race_results)$n)
+# race_results
+```
+
+
+
+```{r workflow-sets-plot-rank-race}
+autoplot(
+   race_results,
+   rank_metric = "roc_auc",  # <- how to order models
+   metric = "roc_auc",       # <- which metric to visualize
+   select_best = TRUE     # <- one point per workflow
+) +
+  geom_text(aes(y = mean - 0.05, label = wflow_id), angle = 45, hjust = 1, size =3) +
+  lims(y = c(0.6, 1.0)) +
+  ylab("ROC-AUC")+
+  labs(title="Ranking models",
+       subtitle="Racing approach")+
+  ggthemes::theme_few()+
+  theme(legend.position = "none")
+
+# inspect hyperparameter results for specific model
+autoplot(grid_results, id = "full_quad_logistic_reg", metric = "roc_auc")+
+  ylab("ROC-AUC")+
+  labs(title="Hyperparameter Performance - Racing Approach",
+       subtitle = "Penalized Logistic Regression")+
+  ggthemes::theme_few()
+```
+
+
+
+```{r workflow-sets-racing-concordance}
+matched_results <- 
+   rank_results(race_results, select_best = TRUE) %>% 
+   select(wflow_id, .metric, race = mean, config_race = .config) %>% 
+   inner_join(
+      rank_results(grid_results, select_best = TRUE) %>% 
+         select(wflow_id, .metric, complete = mean, 
+                config_complete = .config, model),
+      by = c("wflow_id", ".metric"),
+   ) %>%  
+   filter(.metric == "roc_auc")
+
+library(ggrepel)
+matched_results %>% 
+  ggplot(aes(x = complete, y = race)) + 
+  geom_abline(lty = 3) + 
+  geom_point() + 
+  geom_text_repel(aes(label = model)) +
+  coord_obs_pred() + 
+  labs(x = "Complete Grid ROC-AUC", y = "Racing ROC-AUC") +
+  ggthemes::theme_few()
+```
+
+### Fit model to training data
+
+There are several combinations that look good. We identify the best combinations (starting with the random forest or XGBoost)  based on ROC-AUC, and then update our workflow specification with the numerically best settings, and fit to the training set.
+
+```{r workflow-sets-finalize2}
+best_results_rf <- race_results %>% 
+   extract_workflow_set_result("RF") %>% 
+   select_best(metric = "roc_auc")
+best_results_rf
+
+rf_test_results <-  race_results %>% 
+   extract_workflow("RF") %>% 
+   finalize_workflow(best_results_rf) %>% 
+   last_fit(split = dat_split)
+
+## XGB
+best_results_xgb <- race_results %>% 
+   extract_workflow_set_result("XGB") %>% 
+   select_best(metric = "roc_auc")
+best_results_xgb
+
+xgb_test_results <-  race_results %>% 
+   extract_workflow("XGB") %>% 
+   finalize_workflow(best_results_xgb) %>% 
+   last_fit(split = dat_split)
+```
+
+
+## Metrics on Test data for best performing models
+
+In the following we explore the test set metrics, and visualize the predictions.
+
+```{r workflow-sets-collect-test-metrics}
+#collect_metrics(rf_test_results)
+#collect_metrics(xgb_test_results)
+```
+
+We look at the Metrics and the Confusion Matrix.
+
+```{r}
+auc_test <- collect_metrics(xgb_test_results)[[3]][2]
+accuracy_test <- collect_metrics(xgb_test_results)[[3]][1]
+predictions <- collect_predictions(xgb_test_results)
+
+# get optimal threshold (YOUDEN INDEX) and extrac CI AUC
+my_roc <- pROC::roc(predictions$outcome, predictions$.pred_died)
+youden.threshold <- coords(my_roc, x="best", best.method="youden", ret = "threshold")[[1]]
+ci.auc <- ci.auc(my_roc)
+ci.auc.text <- paste("AUC CI: ", round(ci.auc[1],2), "-",round(ci.auc[3],2), " DeLong" , sep = "")
+
+
+predictions <- predictions %>% 
+  mutate(.pred_class = ifelse(.pred_died <= youden.threshold, "survived", "died"),
+         .pred_class = factor(.pred_class, levels = levels(predictions$outcome))
+  )
+
+predictions %>%
+  conf_mat(outcome, .pred_class)
+
+# roc curve
+xgb_test_results %>%
+  collect_predictions() %>%
+  roc_curve(outcome, .pred_died, event_level="second") %>%
+  ggplot(aes(1 - specificity, sensitivity)) +
+  geom_abline(lty = 2, color = "gray80", size = 0.5) +
+  geom_path(show.legend = FALSE) +
+  coord_equal() +
+  labs(title = "ROC Curve (Predict mortality)",
+       subtitle = "XGB - Test set") +
+  annotate("text", x = 0.4, y=0.2, label = paste("XGB-AUC=", round(auc_test,3), sep = ""), size=3, hjust = 0) +
+  annotate("text", x = 0.4, y=0.15, label = paste("XGB-", ci.auc.text, sep = ""), size=3, hjust = 0) +
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()
+```
+
+
+```{r, figures-side, fig.show="hold", out.width="33%", warning=FALSE}
+caret::confusionMatrix(predictions$.pred_class, predictions$outcome, positive = "died")
+
+gbm::calibrate.plot(y = predictions$outcome, p = predictions$.pred_died, 
+                    main="XGB Calibration Plot", 
+                    line.par = list(col = "black"), shade.col="grey")
+```
+
+
+## Metrics on Test Set | All models
+
+```{r loop, fig.show="hold", out.width="50%", warning=FALSE}
+best_results <- list()  # hyperparams selected
+test_results <- list()  # last fit
+
+aucs <- c()
+ci.auc.texts <- c()
+accuracies <- c()
+sensitiv <- c()
+specific <- c()
+ppv <- c()
+npv <- c()
+precision <- c()
+recall <- c()
+f1 <- c()
+
+conf_mat_list <- list()
+predictions_loop <- list()
+caret_conf_mat <- list()
+
+coefficients_loop <- list()
+
+
+for (i in seq_along(1:nrow(race_results))) {
+  ## retrieve ID
+  wflow_id <- race_results[[1]][i]
+  # select best hyperparams
+  best_results[[i]] <- 
+     race_results %>% 
+     extract_workflow_set_result(wflow_id) %>% 
+     select_best(metric = "roc_auc")
+  # fit to training data, and calculate on test data
+  test_results[[i]] <- 
+     race_results %>% 
+     extract_workflow(wflow_id) %>% 
+     finalize_workflow(best_results[[i]]) %>% 
+     last_fit(split = dat_split)
+  
+  aucs <- append(aucs, collect_metrics(test_results[[i]])[[3]][2])
+  accuracies <- append(accuracies, collect_metrics(test_results[[i]])[[3]][1])
+  
+  predictions_loop[[i]] <- test_results[[i]] %>%
+    collect_predictions() 
+  
+  ### --> get optimal threshold (YOUDEN INDEX) & extract CI AUC
+  my_roc <- pROC::roc(predictions_loop[[i]]$outcome, predictions_loop[[i]]$.pred_died)
+  youden.threshold <- coords(my_roc, x="best", best.method="youden", ret = "threshold")[[1]]
+  ci.auc <- ci.auc(my_roc)
+  ci.auc.text <- paste("AUC CI: ", round(ci.auc[1],2), "-",round(ci.auc[3],2), " DeLong" , sep = "")
+  ci.auc.texts <- append(ci.auc.texts, paste("AUC CI: ", round(ci.auc[1],2), "-",round(ci.auc[3],2), " DeLong" , sep = ""))
+  # threshold for spec & sens
+  predictions_loop[[i]] <- predictions_loop[[i]] %>% 
+    mutate(.pred_class = ifelse(.pred_died <= youden.threshold, "survived", "died"),
+           .pred_class = factor(.pred_class, levels = levels(predictions_loop[[i]]$outcome))
+    )
+  
+  conf_mat_list[[i]] <- predictions_loop[[i]] %>%
+    conf_mat(outcome, .pred_class)
+  
+  # print(conf_mat_list[[i]])
+  
+  # CARET CONF MATRIX
+  caret_conf_mat[[i]] <-  caret::confusionMatrix(predictions_loop[[i]]$.pred_class, predictions_loop[[i]]$outcome, positive = "died")
+  print(caret_conf_mat[[i]])
+  sensitiv <- append(sensitiv, caret_conf_mat[[i]][[4]][1])
+  specific <- append(specific, caret_conf_mat[[i]][[4]][2])
+  ppv <- append(ppv, caret_conf_mat[[i]][[4]][3])
+  npv <- append(npv, caret_conf_mat[[i]][[4]][4])
+  precision <- append(precision, caret_conf_mat[[i]][[4]][5])
+  recall <- append(recall, caret_conf_mat[[i]][[4]][6])
+  f1 <- append(f1, caret_conf_mat[[i]][[4]][7])
+  
+  # TEST ROC CURVE
+  subtitle <- paste(wflow_id, " - Test set", sep = "")
+  roc_plot_test <- predictions_loop[[i]] %>% 
+    roc_curve(outcome, .pred_died, event_level="second") %>%
+    ggplot(aes(1 - specificity, sensitivity)) +
+    geom_abline(lty = 2, color = "gray80", size = 0.5) +
+    geom_path(show.legend = FALSE) +
+    coord_equal() +
+    labs(title = "ROC Curve (Predict mortality)",
+         subtitle = subtitle) +
+    annotate("text", x = 0.4, y=0.2, label = paste(wflow_id,"-AUC=", round(aucs[i],3), sep = ""), size=3, hjust = 0) +
+    annotate("text", x = 0.4, y=0.15, label = paste(wflow_id, "-", ci.auc.texts[i], sep = ""), size=3, hjust = 0) +    
+    ggthemes::theme_few()+
+    ggthemes::scale_color_few()+
+    theme(plot.subtitle = element_text(size = 7, color = "black"))
+  print(roc_plot_test)
+
+  gbm::calibrate.plot(y = predictions_loop[[i]]$outcome, p = predictions_loop[[i]]$.pred_died, 
+                    main=paste(wflow_id, "-Calibration Plot", sep=""), 
+                    line.par = list(col = "black"), shade.col="grey", xlim=c(0,0.6))
+}
+```
+
+
+## Model summary
+
+Summary stats of the subsequent models are shown in the following table. 
+
+```{r loop-sum-table}
+performance.summary.table <- tibble(
+  model = race_results$wflow_id,
+  AUC = round(aucs,2), 
+  accuracy = round(accuracies,2),
+  sensitivity = round(sensitiv,2),
+  specificity = round(specific,2),
+  ppv = round(ppv,2),
+  npv= round(npv,2), 
+  precision= round(precision,2), 
+  recall= round(recall,2), 
+  f1.score =round(f1,2)
+  )
+
+kableExtra::kable(performance.summary.table)
+
+#openxlsx::write.xlsx(performance.summary.table, "../export-03/performance_summary/cad_performance_summary_table.xlsx")
+```
+
+
+# Model Explanations
+
+## Global Explanations
+
+We compute variable importance by permutating features. If shuffling a column causes a large degradation in model performance, it is important and vica versa. This approach is model agnostic. 
+
+```{r}
+library(DALEXtra)
+set.seed(20220908)
+model_vars <- simple_rec %>% summary()
+index <- #model_vars$variable != "id" &    # needed for global importance since in recipe
+  model_vars$variable != "outcome"
+
+# modify data
+predictor_vars <- model_vars[["variable"]][index]
+vip_train <- dat_train %>% select(all_of(predictor_vars))
+
+# create explainers
+xgb_fit <- extract_workflow(xgb_test_results)
+explainer_xgb <- 
+  explain_tidymodels(
+    xgb_fit, 
+    data = vip_train, 
+    y = as.numeric(dat_train$outcome), 
+    label = "XGBoost",
+    verbose=FALSE
+  )
+
+rf_fit <- extract_workflow(rf_test_results)
+explainer_rf <- 
+  explain_tidymodels(
+    rf_fit, 
+    data = vip_train, 
+    y = as.numeric(dat_train$outcome), 
+    label = "RF",
+    verbose=FALSE
+  )
+
+# variable importance
+vip_rf <- model_parts(explainer = explainer_rf, 
+            loss_function = loss_default("classification")    #  # loss_default(explainer_xgb$model_info$type) "One minus AUC"
+            )
+vip_xgb <- 
+  model_parts(explainer = explainer_xgb, 
+            loss_function = loss_default("classification")    #  # loss_default(explainer_xgb$model_info$type) 
+            )
+```
+
+```{r explain-global-func}
+# custom TMwR plot function p 292
+library(forcats)
+
+ggplot_imp <- function(...) {
+  obj <- list(...)
+  metric_name <- attr(obj[[1]], "loss_name")
+  metric_lab <- paste(metric_name, 
+                      "after permutations\n(Global Feature Importance)")
+  
+  full_vip <- bind_rows(obj) %>%
+    filter(variable != "_baseline_")
+  
+  perm_vals <- full_vip %>% 
+    filter(variable == "_full_model_") %>% 
+    group_by(label) %>% 
+    summarise(dropout_loss = mean(dropout_loss))
+  
+  p <- full_vip %>%
+    filter(variable != "_full_model_") %>% 
+    mutate(variable = fct_reorder(variable, dropout_loss)) %>%
+    ggplot(aes(dropout_loss, variable)) 
+  if(length(obj) > 1) {
+    p <- p + 
+      facet_wrap(vars(label)) +
+      geom_vline(data = perm_vals, aes(xintercept = dropout_loss, color = label),
+                 size = 1.4, lty = 2, alpha = 0.7) +
+      geom_boxplot(aes(color = label, fill = label), alpha = 0.2)
+  } else {
+    p <- p + 
+      geom_vline(data = perm_vals, aes(xintercept = dropout_loss),
+                 size = 1.4, lty = 2, alpha = 0.7) +
+      geom_boxplot(fill = "#91CBD765", alpha = 0.4)
+    
+  }
+  p +
+    theme(legend.position = "none") +
+    labs(x = metric_lab, 
+         y = NULL,  fill = NULL,  color = NULL)
+}
+```
+
+
+```{r}
+ggplot_imp(vip_rf, vip_xgb)
+```
+
+
+\clearpage
+
+# References
+
+<div id="refs"></div>
+
+
+\clearpage
+
+
+# Software
+
+This analysis was carried out using the statistical software `r base::version$version.string`.
+
+Apart from R's base functionality, the following packages were used: <br/>
+
+```{r software, echo=FALSE}
+# or faster with function...
+installed.packages()[names(sessionInfo()$otherPkgs), "Version"]
+```
+
