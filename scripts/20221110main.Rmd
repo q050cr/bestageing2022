@@ -26,7 +26,7 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-knitr::opts_chunk$set(fig.path = "figures-ba/")
+knitr::opts_chunk$set(fig.path = "../figures/")
 
 # rm(list=ls())
 
@@ -41,14 +41,15 @@ library(ggthemes)
 library(kableExtra)
 library(skimr)
 library(tableone)
-library(tictoc)
 library(pROC)
 library(tidymodels)
+library(vetiver)
 library(workflowsets)
 library(baguette)
 library(rules)
 library(finetune)
 tidymodels_prefer()
+conflicted::conflict_prefer("expand", "tidyr")
 caching <- FALSE
 
 cores <- parallel::detectCores()
@@ -180,7 +181,7 @@ text_disease <- stringr::str_to_upper(params$disease)
 Our goal is to investigate the diagnostic ability of miRNAs in `r text_disease`. In this analysis we are looking at `r text_intro`.
 
 *   **Patient population:** Patients from the BestAgeing study ($n_{total}=$ `r nrow(data01)`)
-*   **Disease:** `r text_disease` ($n_{disease}=$ `r length(eval(as.symbol(disease_vector)))`) vs controls (($n_{control}=$ `r length(control_ids)`))
+*   **Disease:** `r text_disease` ($n_{disease}=$ `r length(eval(as.symbol(disease_vector)))`) vs controls ($n_{control}=$ `r length(control_ids)`)
 *   **Input:** `r no.mirnas` miRNAs adjusted for `age` and `sex`
 *   **Output:** Probability of being diagnosed with `r text_disease`
 *   **Algorithms:**
@@ -189,7 +190,6 @@ Our goal is to investigate the diagnostic ability of miRNAs in `r text_disease`.
     + Random Forest
     + Support Vector Machine
     + Neural Net
-
 
 
 \clearpage
@@ -229,6 +229,10 @@ if (params$analysis == "selected") {
          # do not include workup in model data
     select(-starts_with("wu_"))
 }
+
+# make control first factor for all analyses ;)
+modeldat <- modeldat %>% 
+  mutate(disease = factor(disease, levels = c("control", params$disease)))
 
 dat_split <- rsample::initial_split(modeldat, strata = disease)
 dat_train <- training(dat_split)
@@ -395,7 +399,7 @@ all_workflows <-
 
 ### Tuning the models with small grid
 
-```{r}
+```{r tune-grid-workflows}
 # the workflow_map() function will apply the same function to all of the workflows in the set
 ## the default is fn="tune_grid"
 grid_ctrl <- 
@@ -429,14 +433,14 @@ grid_results %>%
   filter(.metric == "roc_auc") %>% 
   select(model, .config, roc_auc=mean, rank) -> rankings
 
-top2models <- rankings$model[1:2]
+top2models_grid <- rankings$model[1:2]
 for (i in 1:length(all_workflows$info)) {
-  if (all_workflows$info[[i]]$model == top2models[1]) {
-    topmodel1 <- all_workflows$wflow_id[i]
+  if (all_workflows$info[[i]]$model == top2models_grid[1]) {
+    topmodel1_grid <- all_workflows$wflow_id[i]
   }
   
-    if (all_workflows$info[[i]]$model == top2models[2]) {
-    topmodel2 <- all_workflows$wflow_id[i]
+    if (all_workflows$info[[i]]$model == top2models_grid[2]) {
+    topmodel2_grid <- all_workflows$wflow_id[i]
   }
 }
 ```
@@ -457,10 +461,16 @@ autoplot(
   theme(legend.position = "none")
 
 # inspect hyperparameter results for specific model
-autoplot(grid_results, id = topmodel1, metric = "roc_auc")+
+autoplot(grid_results, id = topmodel1_grid, metric = "roc_auc")+
   ylab("ROC-AUC")+
   labs(title="Hyperparameter Performance",
-       subtitle = "Penalized Logistic Regression")+
+       subtitle = stringr::str_to_upper(topmodel1_grid))+
+  ggthemes::theme_few()
+
+autoplot(grid_results, id = topmodel2_grid, metric = "roc_auc")+
+  ylab("ROC-AUC")+
+  labs(title="Hyperparameter Performance - Racing Approach",
+       subtitle = stringr::str_to_upper(topmodel2_grid))+
   ggthemes::theme_few()
 ```
 
@@ -507,6 +517,22 @@ num_race_models <- sum(collect_metrics(race_results)$n)
 
 
 ```{r workflow-sets-plot-rank-race}
+race_results %>% 
+  rank_results() %>% 
+  filter(.metric == "roc_auc") %>% 
+  select(model, .config, roc_auc=mean, rank) -> rankings_race
+
+top2models_race <- rankings_race$model[1:2]
+for (i in 1:length(all_workflows$info)) {
+  if (all_workflows$info[[i]]$model == top2models_race[1]) {
+    topmodel1_race <- all_workflows$wflow_id[i]
+  }
+  
+    if (all_workflows$info[[i]]$model == top2models_race[2]) {
+    topmodel2_race <- all_workflows$wflow_id[i]
+  }
+}
+
 autoplot(
    race_results,
    rank_metric = "roc_auc",  # <- how to order models
@@ -522,22 +548,16 @@ autoplot(
   theme(legend.position = "none")
 
 # inspect hyperparameter results for specific model
-autoplot(grid_results, id = topmodel1, metric = "roc_auc")+
+autoplot(race_results, id = topmodel1_race, metric = "roc_auc")+
   ylab("ROC-AUC")+
   labs(title="Hyperparameter Performance - Racing Approach",
-       subtitle = "Penalized Logistic Regression")+
+       subtitle = stringr::str_to_upper(topmodel1_race))+
   ggthemes::theme_few()
 
-autoplot(grid_results, id = topmodel1, metric = "roc_auc")+
+autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
   ylab("ROC-AUC")+
   labs(title="Hyperparameter Performance - Racing Approach",
-       subtitle = topmodel1)+
-  ggthemes::theme_few()
-
-autoplot(grid_results, id = topmodel2, metric = "roc_auc")+
-  ylab("ROC-AUC")+
-  labs(title="Hyperparameter Performance - Racing Approach",
-       subtitle = topmodel2)+
+       subtitle = stringr::str_to_upper(topmodel2_race))+
   ggthemes::theme_few()
 ```
 
@@ -570,29 +590,27 @@ matched_results %>%
 
 There are several combinations that look good. We identify the best combinations based on ROC-AUC, and then update our workflow specification with the numerically best settings, and fit to the training set.
 
-* Top model 1: `r topmodel1`
-* Top model 2: `r topmodel2`
+* Top model 1: `r topmodel1_race`
+* Top model 2: `r topmodel2_race`
 
 ```{r workflow-sets-finalize2}
 ## TOP MODEL 1
 best_results1 <- race_results %>% 
-   extract_workflow_set_result(topmodel1) %>% 
+   extract_workflow_set_result(topmodel1_race) %>% 
    select_best(metric = "roc_auc")
-best_results1
 
 test_results1 <-  race_results %>% 
-   extract_workflow(topmodel1) %>% 
+   extract_workflow(topmodel1_race) %>% 
    finalize_workflow(best_results1) %>% 
    last_fit(split = dat_split)
 
 ## TOP MODEL 2
 best_results2 <- race_results %>% 
-   extract_workflow_set_result(topmodel2) %>% 
+   extract_workflow_set_result(topmodel2_race) %>% 
    select_best(metric = "roc_auc")
-best_results2
 
 test_results2 <-  race_results %>% 
-   extract_workflow(topmodel2) %>% 
+   extract_workflow(topmodel2_race) %>% 
    finalize_workflow(best_results2) %>% 
    last_fit(split = dat_split)
 ```
@@ -637,25 +655,34 @@ predictions <- predictions %>%
 # roc curve
 test_results1 %>%
   collect_predictions() %>%
+  ## factor order usually alphabetically! (acs < control)
+  mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
   roc_curve(disease, !!sym(pred_string), event_level="second") %>%
   ggplot(aes(1 - specificity, sensitivity)) +
   geom_abline(lty = 2, color = "gray80", size = 0.5) +
   geom_path(show.legend = FALSE) +
   coord_equal() +
   labs(title = paste0("ROC Curve (Predict ", text_disease, ")"),
-       subtitle = paste0(topmodel1, " - Test set") ) +
-  annotate("text", x = 0.4, y=0.2, label = paste(topmodel1, "-AUC=", round(auc_test,3), sep = ""), size=3, hjust = 0) +
-  annotate("text", x = 0.4, y=0.15, label = paste(topmodel1, "-", ci.auc.text, sep = ""), size=3, hjust = 0) +
+       subtitle = paste0(topmodel1_race, " - Test set") ) +
+  annotate("text", x = 0.4, y=0.2, label = paste(topmodel1_race, "-AUC=", round(auc_test,3), sep = ""), size=3, hjust = 0) +
+  annotate("text", x = 0.4, y=0.15, label = paste(topmodel1_race, "-", ci.auc.text, sep = ""), size=3, hjust = 0) +
   ggthemes::theme_few()+
   ggthemes::scale_color_few()
 ```
 
 
 ```{r, figures-side, fig.show="hold", out.width="33%", warning=FALSE}
+
+## factor order usually alphabetically! (acs < control)
+predictions <- predictions %>% 
+  mutate(.pred_class_youden = factor(.pred_class_youden, levels=c("control", params$disease)),
+         disease = factor(disease, levels=c("control", params$disease)),
+         )   
+
 caret::confusionMatrix(predictions$.pred_class_youden, predictions$disease, positive = params$disease)
 
 gbm::calibrate.plot(y = predictions$disease, p = predictions[[pred_string]], 
-                    main= paste0(topmodel1, " Calibration Plot"), 
+                    main= paste0(topmodel1_race, " Calibration Plot"), 
                     line.par = list(col = "black"), shade.col="grey")
 ```
 
@@ -699,6 +726,31 @@ for (i in seq_along(1:nrow(race_results)) ) {
      finalize_workflow(best_results[[i]]) %>% 
      last_fit(split = dat_split)
   
+  ## 1) STORE TEST_SET_RESULTS -----------
+  testresults_save <- paste0(format(params$date, "%Y%m%d"),  "_TEST_RESULTS_", wflow_id, "_", "DISEASE_",
+                      params$disease,"_ANALYSIS_", params$analysis)
+  filename.testresults <- paste0("../output/test_set_results/", testresults_save, ".rds")
+  saveRDS(test_results[[i]], file = filename.testresults)
+  
+  ## 2) STORE MODEL ### ------------------
+  last_fit_metrics <- collect_metrics(test_results[[i]])
+  # extract model
+  last_fit_model <- extract_workflow(test_results[[i]])
+
+  ## VETIVER MODEL DEPLOYMENT
+  modelname <- paste0(format(params$date, "%Y%m%d"),  "_MODEL_", wflow_id, "_", "DISEASE_",
+                      params$disease,"_ANALYSIS_", params$analysis)
+  filename.model.vetiver <- paste0("../output/models/vetiver/", modelname, ".rds")
+  filename.model.tidymodels <- paste0("../output/models/tidymodels/", modelname, ".rds")
+  v <- vetiver_model(
+    model = last_fit_model, 
+    model_name = modelname, 
+    metadata = list(metrics = last_fit_metrics %>% select(-.config))
+  )
+  saveRDS(v, file = filename.model.vetiver)
+  saveRDS(last_fit_model, file = filename.model.tidymodels)
+  ###
+  
   aucs <- append(aucs, collect_metrics(test_results[[i]])[[3]][2])
   accuracies <- append(accuracies, collect_metrics(test_results[[i]])[[3]][1])
   
@@ -722,10 +774,10 @@ for (i in seq_along(1:nrow(race_results)) ) {
   
   # print(conf_mat_list[[i]])
   
-  caret::confusionMatrix(predictions$.pred_class_youden, predictions$disease, positive = params$disease)
-  
   # CARET CONF MATRIX
-  caret_conf_mat[[i]] <-  caret::confusionMatrix(predictions_loop[[i]]$.pred_class_youden, predictions_loop[[i]]$disease, positive = params$disease)
+  caret_conf_mat[[i]] <-  caret::confusionMatrix(predictions_loop[[i]]$.pred_class_youden, 
+                                                 predictions_loop[[i]]$disease, 
+                                                 positive = params$disease)
   print(caret_conf_mat[[i]])
   sensitiv <- append(sensitiv, caret_conf_mat[[i]][[4]][1])
   specific <- append(specific, caret_conf_mat[[i]][[4]][2])
@@ -738,6 +790,8 @@ for (i in seq_along(1:nrow(race_results)) ) {
   # TEST ROC CURVE
   subtitle <- paste(wflow_id, " - Test set", sep = "")
   roc_plot_test <- predictions_loop[[i]] %>% 
+      ## factor order usually alphabetically! (acs < control)
+    mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
     roc_curve(disease, !!sym(pred_string), event_level="second") %>%
     ggplot(aes(1 - specificity, sensitivity)) +
     geom_abline(lty = 2, color = "gray80", size = 0.5) +
@@ -751,6 +805,12 @@ for (i in seq_along(1:nrow(race_results)) ) {
     ggthemes::scale_color_few()+
     theme(plot.subtitle = element_text(size = 7, color = "black"))
   print(roc_plot_test)
+  
+  ## factor order usually alphabetically! (acs < control)
+  predictions_loop[[i]] <- predictions_loop[[i]] %>% 
+    mutate(.pred_class_youden = factor(.pred_class_youden, levels=c("control", params$disease)),
+           disease = factor(disease, levels=c("control", params$disease)),
+           )   
 
   gbm::calibrate.plot(y = predictions_loop[[i]]$disease, p = predictions_loop[[i]][[pred_string]], 
                     main=paste(wflow_id, "-Calibration Plot", sep=""), 
@@ -778,9 +838,15 @@ performance.summary.table <- tibble(
   )
 
 kableExtra::kable(performance.summary.table, digits = 3, caption = "Summary statistics of ML-models",) %>% 
-  kable_styling(font_size=16)
+  kable_styling(font_size=12)
 
-#openxlsx::write.xlsx(performance.summary.table, "../export-03/performance_summary/cad_performance_summary_table.xlsx")
+filename.df.xlsx <- paste0("../output/performance_summary_df/", format(params$date, "%Y%m%d"), "_",
+                      params$disease,"_ANALYSIS_", params$analysis, "_performance_summary_table.xlsx")
+filename.df.rds <- paste0("../output/performance_summary_df/", format(params$date, "%Y%m%d"), "_",
+                      params$disease,"_ANALYSIS_", params$analysis, "_performance_summary_table.rds")
+
+openxlsx::write.xlsx(performance.summary.table, file = filename.df.xlsx, overwrite = TRUE)
+saveRDS(performance.summary.table, file = filename.df.rds)
 ```
 
 \clearpage
@@ -810,7 +876,7 @@ explainer1 <-
     fit1, 
     data = vip_train, 
     y = as.numeric(dat_train$disease), 
-    label = topmodel1,
+    label = topmodel1_race,
     verbose=FALSE
   )
 
@@ -820,7 +886,7 @@ explainer2 <-
     fit2, 
     data = vip_train, 
     y = as.numeric(dat_train$disease), 
-    label = topmodel2,
+    label = topmodel2_race,
     verbose=FALSE
   )
 
@@ -832,6 +898,14 @@ vip2 <-
   model_parts(explainer = explainer2, 
             loss_function = loss_default("classification")    #  # loss_default(explainer_xgb$model_info$type) 
             )
+
+filename.vip1.rds <- paste0("../output/dalextra/", format(params$date, "%Y%m%d"), "_",
+                      params$disease,"_ANALYSIS_", params$analysis, "_vip1.rds")
+filename.vip2.rds <- paste0("../output/dalextra/", format(params$date, "%Y%m%d"), "_",
+                      params$disease,"_ANALYSIS_", params$analysis, "_vip2.rds")
+
+saveRDS(vip1, file = filename.vip1.rds)
+saveRDS(vip2, file = filename.vip2.rds)
 ```
 
 ```{r explain-global-func}
@@ -870,7 +944,8 @@ ggplot_imp <- function(...) {
     
   }
   p +
-    theme(legend.position = "none") +
+    theme(legend.position = "none",
+          axis.text.y = element_text(size=4)) +
     labs(x = metric_lab, 
          y = NULL,  fill = NULL,  color = NULL) +
     theme_few()
