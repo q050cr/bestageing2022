@@ -9,5 +9,7 @@
 
 # dirs
 data/
+figures/
 output/
+reports/
 scripts/figures-ba/
