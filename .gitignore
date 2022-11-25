@@ -1,4 +1,3 @@
-
 # R files
 .Rproj.user
 .Rhistory
@@ -6,10 +5,10 @@
 .Ruserdata
 ._bestageing2022.Rproj
 ._*
-
 # dirs
 data/
 figures/
 output/
 reports/
 scripts/figures-ba/
+.secret
