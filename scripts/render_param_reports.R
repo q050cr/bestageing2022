@@ -11,6 +11,8 @@ myPaths <- c("library", myPaths)[1:2]  # only use ow
 
 ## render report and mail results
 library(dplyr)
+gmailr::gm_auth_configure(path = "library/credentials.json")
+gmailr::gm_auth(email=TRUE, cache = ".secret")
 
 render_report = function(disease, analysis) {
   ## disease: acs, cad, hfref, dcm | default: dcm
@@ -45,7 +47,7 @@ render_report = function(disease, analysis) {
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
 all_combis <- tidyr::crossing(diseases, analysis) %>% 
-  filter(analysis=="selected" & diseases=="dcm")# %>% 
+  filter(analysis=="full" & diseases=="dcm")# %>% 
   #slice(1:2)
 
 ## render first report
