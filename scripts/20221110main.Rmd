@@ -23,7 +23,7 @@ output:
     latex_engine: xelatex
 #bibliography: ../references/refs_ba.bib
 ---
-
+"baguette", "DALEXtra", "finetune", "rules", "tidymodels", "vetiver", "workflowsets"
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 figurespath <- paste0("../reports/", 
@@ -630,7 +630,7 @@ In the following we explore the test set metrics, and visualize the predictions.
 
 We look at the Metrics and the Confusion Matrix.
 
-```{r}
+```{r roc-test-check}
 auc_test <- collect_metrics(test_results1)[[3]][2]
 accuracy_test <- collect_metrics(test_results1)[[3]][1]
 predictions <- collect_predictions(test_results1)
@@ -674,7 +674,7 @@ test_results1 %>%
 ```
 
 
-```{r, figures-side, fig.show="hold", out.width="33%", warning=FALSE}
+```{r calibration-plot-test-check, figures-side, fig.show="hold", out.width="33%", warning=FALSE}
 
 ## factor order usually alphabetically! (acs < control)
 predictions <- predictions %>% 
@@ -956,7 +956,7 @@ ggplot_imp <- function(...) {
 ```
 
 
-```{r, out.width="200%"}
+```{r plot-feature-importance-show, fig.height=17, fig.width=8}
 ggplot_imp(vip1, vip2)
 ```
 

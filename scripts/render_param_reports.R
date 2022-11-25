@@ -4,14 +4,14 @@
 
 rm(list=ls())  # not in rmd doc, otherwise params deleted
 
-# change libpath
-myPaths <- .libPaths()
-myPaths <- c("library", myPaths)[1:2]  # only use ow
-.libPaths(myPaths)
+## change libpath
+#myPaths <- .libPaths()
+#myPaths <- c("library", myPaths)[1:2]  # only use ow
+#.libPaths(myPaths)
 
 ## render report and mail results
 library(dplyr)
-gmailr::gm_auth_configure(path = "library/credentials.json")
+gmailr::gm_auth_configure(path = "../library/credentials.json")
 gmailr::gm_auth(email=TRUE, cache = ".secret")
 
 render_report = function(disease, analysis) {
@@ -19,7 +19,7 @@ render_report = function(disease, analysis) {
   ## analysis: selected, full | default: selected
   
   rmarkdown::render(
-    "bestageing2022/scripts/20221110main.Rmd",
+    "scripts/20221110main.Rmd",
     params = list(
       disease = disease,
       analysis = analysis,
@@ -30,11 +30,11 @@ render_report = function(disease, analysis) {
       "_ANALYSIS_", stringr::str_to_upper(analysis),
       '.html'
     ),
-    output_dir = "bestageing2022/reports",
+    output_dir = "reports",
     envir = globalenv()
   )
   # save filename for sending later
-  filename.html <<-  paste0("bestageing2022/reports/",
+  filename.html <<-  paste0("reports/",
                             format(Sys.time(), "%Y%m%d"), '_ba_diagnostic_DISEASE_', stringr::str_to_upper(disease),
                             "_ANALYSIS_", stringr::str_to_upper(analysis), '.html'
   )
@@ -47,7 +47,7 @@ render_report = function(disease, analysis) {
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
 all_combis <- tidyr::crossing(diseases, analysis) %>% 
-  filter(analysis=="full" & diseases=="dcm")# %>% 
+  filter(analysis=="selected")# & diseases=="dcm")# %>% 
   #slice(1:2)
 
 ## render first report
