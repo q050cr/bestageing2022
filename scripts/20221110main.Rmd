@@ -26,7 +26,10 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-knitr::opts_chunk$set(fig.path = "../figures/")
+figurespath <- paste0("../reports/", 
+                      format(Sys.time(), "%Y%m%d"), '_ba_diagnostic_DISEASE_', stringr::str_to_upper(params$disease), 
+                      "_ANALYSIS_", stringr::str_to_upper(params$analysis), "_figures/")
+knitr::opts_chunk$set(fig.path = figurespath)
 
 # rm(list=ls())
 
