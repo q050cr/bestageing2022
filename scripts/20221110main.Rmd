@@ -349,6 +349,7 @@ mlp_nnet_spec <-
   set_mode('classification')
 ```
 
+
 ### Workflow Set
 
 ```{r workflows}
@@ -396,6 +397,59 @@ all_workflows <-
   mutate(wflow_id = gsub("(simple_)|(normalized_)", "", wflow_id))
 ```
 
+```{r define-grids}
+# need to finalize mtry - data dependent (unknown values - how many predictors?)
+## data dependent: mtry(), sample_size(), num_terms(), num_comp()
+
+if (params$analysis == "selected") {
+  # only 114 mirnas in analysis
+  grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
+    extract_parameter_set_dials() %>% 
+    # data dependent
+    update(mtry = mtry(range = c(1, ncol(dat_train))) ) %>% 
+    grid_latin_hypercube(size=50) 
+  } else{
+    # full analysis with all mirnas: limit `mtry()`
+    grid_RF <- rand_forest_ranger_spec %>% 
+      extract_parameter_set_dials() %>% 
+      # data dependent
+      update(mtry = mtry(range = c(1, ncol(dat_train)/2)) ) %>%  # not using all features
+      grid_latin_hypercube(size=50) 
+}
+
+grid_XGB <- boost_tree_xgboost_spec %>%  # 7 hyperparams!!
+  extract_parameter_set_dials() %>%
+  grid_latin_hypercube(size=100)
+
+grid_KNN <- nearest_neighbor_kknn_spec %>%  # 3 hyperparams
+  extract_parameter_set_dials() %>%
+  grid_latin_hypercube(size=50)
+
+grid_SVM_radial <- svm_rbf_kernlab_spec %>%   # 3 hyperparams
+  extract_parameter_set_dials() %>%
+  grid_latin_hypercube(size=50)
+
+grid_SVM_poly <- svm_poly_kernlab_spec %>%   # 4 hyperparams
+  extract_parameter_set_dials() %>%
+  grid_latin_hypercube(size=50)
+
+grid_SVM_linear <- svm_linear_kernlab_spec %>%   # 2 hyperparams
+  extract_parameter_set_dials() %>%
+  grid_latin_hypercube(size=25)
+
+grid_neural_network <- mlp_nnet_spec %>%   # 3 hyperparams
+  extract_parameter_set_dials() %>% 
+  grid_latin_hypercube(size=50)
+
+grid_full_quad_logistic_reg <- logistic_reg_glmnet_spec %>%  # 2 hyperparams
+  extract_parameter_set_dials() %>% 
+  grid_latin_hypercube(size=25)
+
+grid_full_quad_KNN <- grid_KNN
+
+```
+
+
 ### Tuning the models with small grid
 
 ```{r tune-grid-workflows}
@@ -413,10 +467,14 @@ time1 <- Sys.time()
 grid_results <- 
   all_workflows %>% 
   workflow_map(
-    seed = 20221111,
+    # options to `tune_grid()`
     resamples = folds,
     grid = 25,
-    control = grid_ctrl
+    metrics = metric_set(roc_auc),
+    control = grid_ctrl,
+    # options to `workflow_map()`
+    seed = 20221111,
+    verbose = TRUE
   )
 time2 <- Sys.time()
 time.diff.grid <- time2-time1
