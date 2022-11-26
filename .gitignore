@@ -11,4 +11,5 @@ figures/
 output/
 reports/
 scripts/figures-ba/
+scripts/test/
 .secret
