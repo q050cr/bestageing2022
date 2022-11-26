@@ -10,7 +10,7 @@ date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
 params:
   date: !r Sys.Date()
   doc_title: "The Default Title"
-  disease: "dcm"   # possibilities: acs, cad, hfref, dcm
+  disease: "acs"   # possibilities: acs, cad, hfref, dcm
   analysis: "selected"  # possibilities: selected, full
 output: 
   html_document:
@@ -46,6 +46,7 @@ library(skimr)
 library(tableone)
 library(pROC)
 library(tidymodels)
+options(tidymodels.dark = TRUE)
 library(vetiver)
 library(workflowsets)
 library(baguette)
@@ -223,14 +224,10 @@ set.seed(123)
 
 if (params$analysis == "selected") {
   # only 114 mirnas in analysis
-  modeldat <- eval(as.symbol(selected_mirna_dat)) %>%  # %>% mutate(c0_tnt = log(c0_tnt))
-         # do not include workup in model data
-    select(-starts_with("wu_"))
-} else{
-  # full analysis with all mirnas
-  modeldat <- data01 %>%  # %>% mutate(c0_tnt = log(c0_tnt))
-         # do not include workup in model data
-    select(-starts_with("wu_"))
+  modeldat <- eval(as.symbol(selected_mirna_dat)) 
+  } else{
+    # full analysis with all mirnas
+    modeldat <- data01
 }
 
 # make control first factor for all analyses ;)
@@ -393,7 +390,6 @@ with_features <-
 
 ## these objects are tibbles -> row binding does not affect the state of the sets
 ### result is itself a workflow set
-
 all_workflows <- 
   bind_rows(simple, normalized, with_features) %>% 
   # make workflow IDs a little more simple:
@@ -403,6 +399,7 @@ all_workflows <-
 ### Tuning the models with small grid
 
 ```{r tune-grid-workflows}
+set.seed(123)
 # the workflow_map() function will apply the same function to all of the workflows in the set
 ## the default is fn="tune_grid"
 grid_ctrl <- 
@@ -483,6 +480,7 @@ autoplot(grid_results, id = topmodel2_grid, metric = "roc_auc")+
 ```{r workflow-sets-race}
 library(finetune)
 
+set.seed(123)
 race_ctrl <-
    control_race(
       save_pred = TRUE,
