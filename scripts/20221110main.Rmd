@@ -10,7 +10,7 @@ date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
 params:
   date: !r Sys.Date()
   doc_title: "The Default Title"
-  disease: "acs"   # possibilities: acs, cad, hfref, dcm
+  disease: "cad"   # possibilities: acs, cad, hfref, dcm
   analysis: "selected"  # possibilities: selected, full
 output: 
   html_document:
@@ -334,11 +334,14 @@ svm_rbf_kernlab_spec <-
   set_engine('kernlab') %>%
   set_mode('classification')
 
-boost_tree_xgboost_spec <-
-  boost_tree(tree_depth = tune(), trees = tune(), 
-             learn_rate = tune(), min_n = tune(), 
-             loss_reduction = tune(), sample_size = tune(), 
-             stop_iter = tune()) %>%
+boost_tree_xgboost_spec <-  # https://parsnip.tidymodels.org/reference/details_boost_tree_xgboost.html
+  boost_tree(trees = tune(), tree_depth = tune(), 
+             min_n = tune(),                              ## first three: model complexity
+             loss_reduction = tune(), 
+             stop_iter = tune(), 
+             sample_size = tune(), mtry = tune(),         ## randomness
+             learn_rate = tune(),                         ## step size
+             ) %>%
   set_engine('xgboost') %>%
   set_mode('classification')
 
@@ -400,7 +403,7 @@ all_workflows <-
 ```{r define-grids}
 # need to finalize mtry - data dependent (unknown values - how many predictors?)
 ## data dependent: mtry(), sample_size(), num_terms(), num_comp()
-
+set.seed(123)
 if (params$analysis == "selected") {
   # only 114 mirnas in analysis
   grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
@@ -410,16 +413,28 @@ if (params$analysis == "selected") {
     grid_latin_hypercube(size=50) 
   } else{
     # full analysis with all mirnas: limit `mtry()`
-    grid_RF <- rand_forest_ranger_spec %>% 
+  grid_RF <- rand_forest_ranger_spec %>% 
       extract_parameter_set_dials() %>% 
       # data dependent
       update(mtry = mtry(range = c(1, ncol(dat_train)/2)) ) %>%  # not using all features
       grid_latin_hypercube(size=50) 
 }
 
-grid_XGB <- boost_tree_xgboost_spec %>%  # 7 hyperparams!!
-  extract_parameter_set_dials() %>%
-  grid_latin_hypercube(size=100)
+if (params$analysis == "selected") {
+  # only 114 mirnas in analysis
+  grid_XGB <- boost_tree_xgboost_spec %>%   # 2 hyperparams
+    extract_parameter_set_dials() %>% 
+    # data dependent
+    update(mtry = mtry(range = c(1, ncol(dat_train))) ) %>% 
+    grid_latin_hypercube(size=50) 
+  } else{
+    # full analysis with all mirnas: limit `mtry()`
+  grid_XGB <- boost_tree_xgboost_spec %>% 
+      extract_parameter_set_dials() %>% 
+      # data dependent
+      update(mtry = mtry(range = c(1, ncol(dat_train)/2)) ) %>%  # not using all features
+      grid_latin_hypercube(size=50) 
+}
 
 grid_KNN <- nearest_neighbor_kknn_spec %>%  # 3 hyperparams
   extract_parameter_set_dials() %>%
@@ -431,22 +446,32 @@ grid_SVM_radial <- svm_rbf_kernlab_spec %>%   # 3 hyperparams
 
 grid_SVM_poly <- svm_poly_kernlab_spec %>%   # 4 hyperparams
   extract_parameter_set_dials() %>%
-  grid_latin_hypercube(size=50)
+  grid_latin_hypercube(size=75)
 
 grid_SVM_linear <- svm_linear_kernlab_spec %>%   # 2 hyperparams
   extract_parameter_set_dials() %>%
-  grid_latin_hypercube(size=25)
+  grid_latin_hypercube(size=50)
 
 grid_neural_network <- mlp_nnet_spec %>%   # 3 hyperparams
   extract_parameter_set_dials() %>% 
-  grid_latin_hypercube(size=50)
+  grid_latin_hypercube(size=75)
 
 grid_full_quad_logistic_reg <- logistic_reg_glmnet_spec %>%  # 2 hyperparams
   extract_parameter_set_dials() %>% 
-  grid_latin_hypercube(size=25)
+  grid_latin_hypercube(size=50)
 
-grid_full_quad_KNN <- grid_KNN
-
+## supply grid to workflow options
+# https://github.com/tidymodels/workflowsets/issues/37
+all_workflows <- all_workflows %>% 
+  option_add(grid = grid_RF, id = "RF") %>% 
+  option_add(grid = grid_XGB, id = "XGB") %>% 
+  option_add(grid = grid_KNN, id = "KNN") %>% 
+  option_add(grid = grid_SVM_radial, id = "SVM_radial") %>% 
+  option_add(grid = grid_SVM_poly, id = "SVM_poly") %>% 
+  option_add(grid = grid_SVM_linear, id = "SVM_linear") %>% 
+  option_add(grid = grid_neural_network, id = "neural_network") %>% 
+  option_add(grid = grid_full_quad_logistic_reg, id = "full_quad_logistic_reg") %>% 
+  option_add(grid = grid_KNN, id = "full_quad_KNN")   # same hyperparams
 ```
 
 
@@ -459,6 +484,8 @@ set.seed(123)
 grid_ctrl <- 
   control_grid(
     save_pred = TRUE,
+    pkgs = NULL,
+    event_level = "first",  # default
     parallel_over = "everything",
     save_workflow = TRUE
   )
@@ -469,7 +496,7 @@ grid_results <-
   workflow_map(
     # options to `tune_grid()`
     resamples = folds,
-    grid = 25,
+    #grid = 25,  # grid specifed above
     metrics = metric_set(roc_auc),
     control = grid_ctrl,
     # options to `workflow_map()`
@@ -481,6 +508,8 @@ time.diff.grid <- time2-time1
 
 num_grid_models <- nrow(collect_metrics(grid_results, summarize = FALSE))
 ```
+
+Tune grid: `r time.diff.grid`.
 
 What do our `grid_results` look like?
 
@@ -527,7 +556,7 @@ autoplot(grid_results, id = topmodel1_grid, metric = "roc_auc")+
 
 autoplot(grid_results, id = topmodel2_grid, metric = "roc_auc")+
   ylab("ROC-AUC")+
-  labs(title="Hyperparameter Performance - Racing Approach",
+  labs(title="Hyperparameter Performance - Grid Approach",
        subtitle = stringr::str_to_upper(topmodel2_grid))+
   ggthemes::theme_few()
 ```
@@ -541,39 +570,40 @@ library(finetune)
 set.seed(123)
 race_ctrl <-
    control_race(
-      save_pred = TRUE,
-      parallel_over = "everything",
-      save_workflow = TRUE
+     verbose = TRUE,
+     verbose_elim = TRUE,
+     allow_par = TRUE,
+     save_pred = TRUE,
+     burn_in = 3,
+     num_ties = 10,
+     alpha = 0.05,
+     randomize = TRUE,
+     pkgs = NULL,
+     event_level = "first",
+     parallel_over = "everything",
+     save_workflow = TRUE
    )
 
 time1 <- Sys.time()
 race_results <-  all_workflows %>%
    workflow_map(
       "tune_race_anova",
-      seed = 1503,
+      # options to `tune_race_anova()`
       resamples = folds,
-      grid = 25,
-      control = race_ctrl
+      # grid = 25,  # grid specified to workflow_map above
+      metrics = metric_set(roc_auc),
+      control = race_ctrl,
+      # options to `workflow_map()`
+      seed = 20221111,
+      verbose = TRUE
    )
 time2 <- Sys.time()
 time.diff.race <- time2-time1
 
-# race_results_time <-      ## asign time
-#    system.time(
-#       race_results <-     ## here asign results
-#          all_workflows %>% 
-#          workflow_map("tune_race_anova", 
-#                       seed = 1503,  resamples = acs_folds, 
-#                       grid = 25, 
-#                       control = race_ctrl
-#                       )
-#    )
-
 num_race_models <- sum(collect_metrics(race_results)$n)
-# race_results
 ```
 
-
+Tune grid: `r time.diff.race`.
 
 ```{r workflow-sets-plot-rank-race}
 race_results %>% 
@@ -718,7 +748,8 @@ test_results1 %>%
   mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
   roc_curve(disease, !!sym(pred_string), event_level="second") %>%
   ggplot(aes(1 - specificity, sensitivity)) +
-  geom_abline(lty = 2, color = "gray80", size = 0.5) +
+  geom_line(size = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
+  geom_abline(lty = 2, color = ggthemes_data$few$colors$Dark[1,2][[1]], size = 1.2, alpha=0.5) +
   geom_path(show.legend = FALSE) +
   coord_equal() +
   labs(title = paste0("ROC Curve (Predict ", text_disease, ")"),
@@ -853,7 +884,8 @@ for (i in seq_along(1:nrow(race_results)) ) {
     mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
     roc_curve(disease, !!sym(pred_string), event_level="second") %>%
     ggplot(aes(1 - specificity, sensitivity)) +
-    geom_abline(lty = 2, color = "gray80", size = 0.5) +
+    geom_line(size = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
+    geom_abline(lty = 2, color = ggthemes_data$few$colors$Dark[1,2][[1]], size = 1.2, alpha=0.5) +
     geom_path(show.legend = FALSE) +
     coord_equal() +
     labs(title = paste0("ROC Curve (Predict ", text_disease, ")"),
