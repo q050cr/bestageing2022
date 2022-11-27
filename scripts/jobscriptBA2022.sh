@@ -1,7 +1,9 @@
 #!/bin/bash
+#SBATCH --job-name="miRNA diagnostic analysis"
+
 
 echo "== Diagnostic analysis of research miRNAs  =="
 
-Rscript scripts/render_param_reports.R
+Rscript scripts/jobRunScript.R
 
 echo "== End of Job =="

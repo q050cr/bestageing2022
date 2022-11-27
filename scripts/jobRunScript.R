@@ -1,25 +1,15 @@
 
-# jobRunScript() ----------------------------------------------------------
-
-rstudioapi::jobRunScript(path = "~/bestageing2022/scripts/render_param_reports.R", 
-                         name = "jobscript_mirna_diagnostic",
-                         workingDir="~/bestageing2022",
-                         importEnv=FALSE,
-                         exportEnv=""  # default (skip export)
-                         )
-
 
 # callr -------------------------------------------------------------------
-
 callr::rscript( # https://callr.r-lib.org/reference/rscript.html
   script = "scripts/render_param_reports.R",
   cmdargs = character(),
   libpath = .libPaths()[1],
   #repos = default_repos(),
-  #stdout = NULL,  # Optionally a file name to send the standard output to
-  #stderr = NULL,
+  stdout = paste0(Sys.Date(), "_slurm.out"),  # Optionally a file name to send the standard output to
+  stderr = paste0(Sys.Date(), "_error.out"),
   #poll_connection = TRUE,
-  echo = TRUE,  # default=FALSE
+  echo = FALSE,  # default=FALSE
   show = TRUE,
   #callback = NULL,
   #block_callback = NULL,
@@ -33,3 +23,12 @@ callr::rscript( # https://callr.r-lib.org/reference/rscript.html
   color = TRUE,
   #...
 )
+
+
+# alternative: jobRunScript() ----------------------------------------------------------
+# rstudioapi::jobRunScript(path = "~/bestageing2022/scripts/render_param_reports.R", 
+#                          name = "jobscript_mirna_diagnostic",
+#                          workingDir="~/bestageing2022",
+#                          importEnv=FALSE,
+#                          exportEnv=""  # default (skip export)
+#                          )
