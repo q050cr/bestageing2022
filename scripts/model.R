@@ -43,8 +43,8 @@ tune_grid_eval <- FALSE
 if ( !exists("all_combis")  ) {  # check if variable name exists
   diseases <- c("dcm", "acs", "cad", "hfref")
   analysis <- c("selected", "full")
-  all_combis <- tidyr::crossing(diseases, analysis) %>% 
-    filter(analysis=="selected")
+  all_combis <- tidyr::crossing(diseases, analysis) #%>% 
+    #filter(analysis=="selected")
 }
 
 ###
@@ -340,14 +340,14 @@ for (i in 1:nrow(all_combis)) {
       extract_parameter_set_dials() %>% 
       # data dependent
       update(mtry = mtry(range = c(1, ncol(dat_train))) ) %>% 
-      grid_latin_hypercube(size=50) 
+      grid_latin_hypercube(size=100) 
   } else{
     # full analysis with all mirnas: limit `mtry()`
     grid_RF <- rand_forest_ranger_spec %>% 
       extract_parameter_set_dials() %>% 
       # data dependent
-      update(mtry = mtry(range = c(1, ncol(dat_train)/2)) ) %>%  # not using all features
-      grid_latin_hypercube(size=50) 
+      update(mtry = mtry(range = c(1, ceiling(ncol(dat_train)/2))) ) %>%  # not using all features
+      grid_latin_hypercube(size=100) 
   }
   
   if (all_combis$analysis[i] == "selected") {
@@ -356,39 +356,39 @@ for (i in 1:nrow(all_combis)) {
       extract_parameter_set_dials() %>% 
       # data dependent
       update(mtry = mtry(range = c(1, ncol(dat_train))) ) %>% 
-      grid_latin_hypercube(size=50) 
+      grid_latin_hypercube(size=150) 
   } else{
     # full analysis with all mirnas: limit `mtry()`
     grid_XGB <- boost_tree_xgboost_spec %>% 
       extract_parameter_set_dials() %>% 
       # data dependent
-      update(mtry = mtry(range = c(1, ncol(dat_train)/2)) ) %>%  # not using all features
-      grid_latin_hypercube(size=50) 
+      update(mtry = mtry(range = c(1, ceiling(ncol(dat_train)/2))) ) %>%  # not using all features
+      grid_latin_hypercube(size=150) 
   }
   
   grid_KNN <- nearest_neighbor_kknn_spec %>%  # 3 hyperparams
     extract_parameter_set_dials() %>%
-    grid_latin_hypercube(size=50)
+    grid_latin_hypercube(size=100)
   
   grid_SVM_radial <- svm_rbf_kernlab_spec %>%   # 3 hyperparams
     extract_parameter_set_dials() %>%
-    grid_latin_hypercube(size=50)
+    grid_latin_hypercube(size=100)
   
   grid_SVM_poly <- svm_poly_kernlab_spec %>%   # 4 hyperparams
     extract_parameter_set_dials() %>%
-    grid_latin_hypercube(size=75)
+    grid_latin_hypercube(size=100)
   
   grid_SVM_linear <- svm_linear_kernlab_spec %>%   # 2 hyperparams
     extract_parameter_set_dials() %>%
-    grid_latin_hypercube(size=50)
+    grid_latin_hypercube(size=100)
   
   grid_neural_network <- mlp_nnet_spec %>%   # 3 hyperparams
     extract_parameter_set_dials() %>% 
-    grid_latin_hypercube(size=75)
+    grid_latin_hypercube(size=150)
   
   grid_full_quad_logistic_reg <- logistic_reg_glmnet_spec %>%  # 2 hyperparams
     extract_parameter_set_dials() %>% 
-    grid_latin_hypercube(size=50)
+    grid_latin_hypercube(size=100)
   
   ## supply grid to workflow options
   # https://github.com/tidymodels/workflowsets/issues/37
@@ -602,36 +602,45 @@ for (i in 1:nrow(all_combis)) {
          units = "in"  # default
   )
   
-  # inspect hyperparameter results for specific model
-  autoplot(race_results, id = topmodel1_race, metric = "roc_auc")+
-    ylab("ROC-AUC")+
-    labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
-                      str_to_upper(all_combis$analysis[i])),
-         subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel1_race))) +
-    ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel1
+  if( topmodel1_race != "KNN" &  topmodel1_race != "full_quad_KNN" ) {
+    #       Error in `geom_point()`:
+    #         ! Problem while computing aesthetics.
+    #       ℹ Error occurred in the 1st layer.
+    #       Caused by error in `FUN()`:
+    #         ! Objekt 'resamples' nicht gefunden
+    # inspect hyperparameter results for specific model
+    autoplot(race_results, id = topmodel1_race, metric = "roc_auc")+
+      ylab("ROC-AUC")+
+      labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
+                        str_to_upper(all_combis$analysis[i])),
+           subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel1_race))) +
+      ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel1
+    
+    filename_plot_tune_race_hyperpars_topmodel1 <- paste0("output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
+                                                          text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
+                                                          ".png")
+    ggsave(filename = filename_plot_tune_race_hyperpars_topmodel1, plot = plot_tune_race_hyperpars_topmodel1, 
+           width = 14, height = 10, 
+           units = "in"  # default
+    )
+  }
   
-  filename_plot_tune_race_hyperpars_topmodel1 <- paste0("output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
-                                                        text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
-                                                        ".png")
-  ggsave(filename = filename_plot_tune_race_hyperpars_topmodel1, plot = plot_tune_race_hyperpars_topmodel1, 
-         width = 14, height = 10, 
-         units = "in"  # default
-  )
-  
-  autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
-    ylab("ROC-AUC")+
-    labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
-                      str_to_upper(all_combis$analysis[i])),
-         subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel2_race))) +
-    ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel2
-  
-  filename_plot_tune_race_hyperpars_topmodel2 <- paste0("output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
-                                                        text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
-                                                        ".png")
-  ggsave(filename = filename_plot_tune_race_hyperpars_topmodel2, plot = plot_tune_race_hyperpars_topmodel2, 
-         width = 14, height = 10, 
-         units = "in"  # default
-  )
+  if( topmodel2_race != "KNN" &  topmodel2_race != "full_quad_KNN" ) {
+    autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
+      ylab("ROC-AUC")+
+      labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
+                        str_to_upper(all_combis$analysis[i])),
+           subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel2_race))) +
+      ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel2
+    
+    filename_plot_tune_race_hyperpars_topmodel2 <- paste0("output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel2_", 
+                                                          text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
+                                                          ".png")
+    ggsave(filename = filename_plot_tune_race_hyperpars_topmodel2, plot = plot_tune_race_hyperpars_topmodel2, 
+           width = 14, height = 10, 
+           units = "in"  # default
+    )
+  }
   
   if (tune_grid_eval == TRUE) {
     matched_results <- 
