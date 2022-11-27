@@ -5,6 +5,10 @@
 .Ruserdata
 ._bestageing2022.Rproj
 ._*
+slurm*
+*error.out
+*slurm.out
+
 # dirs
 data/
 figures/
