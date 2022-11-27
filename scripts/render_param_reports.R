@@ -16,7 +16,7 @@ render_report = function(disease, analysis) {
   ## analysis: selected, full | default: selected
   
   rmarkdown::render(
-    "scripts/20221110main.Rmd",
+    "scripts/main.Rmd",
     params = list(
       disease = disease,
       analysis = analysis,
@@ -50,8 +50,8 @@ if (model.new == TRUE ) {
 
 time11 <- Sys.time()
 # render for all diseases both selected and all miRNAs analysis
-for (i in 1:nrow(all_combis)) {
-  render_report(disease = all_combis$diseases[i], analysis = all_combis$analysis[i])
+for (reports in 1:nrow(all_combis)) {
+  render_report(disease = all_combis$diseases[reports], analysis = all_combis$analysis[reports])
   # send report
   email <-
     gmailr::gm_mime() %>%

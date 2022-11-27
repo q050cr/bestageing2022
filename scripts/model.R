@@ -1,6 +1,7 @@
 
-## INFO -----------------------
+### INFO ----------------------------------------------------------------------
 # this script is sourced from `scripts/render_param_reports.R`
+# selection provided by `all_combis$diseases` and `all_combis$analysis`
 
 # dependencies ---------------------------------------------------------------
 library(readxl)
@@ -39,6 +40,12 @@ if (!grepl("mingw32", R.Version()$platform)) {
 
 
 tune_grid_eval <- FALSE
+if ( !exists("all_combis")  ) {  # check if variable name exists
+  diseases <- c("dcm", "acs", "cad", "hfref")
+  analysis <- c("selected", "full")
+  all_combis <- tidyr::crossing(diseases, analysis) %>% 
+    filter(analysis=="selected")
+}
 
 ###
 # load data ---------------------------------------------------------------
@@ -89,10 +96,10 @@ control_ids <- read_excel("../BestAgeing/data/pheno_controls.xlsx") %>%
 
 
 ###
-# start loop for specified combinations -------------------------------------
+# START LOOP for specified combinations -------------------------------------
 ###
 for (i in 1:nrow(all_combis)) {
-  
+  ## DATA FIRST
   filename <- paste0("../BestAgeing/data/pheno_", all_combis$diseases[i], ".xlsx")
   disease_vector <- paste0(all_combis$diseases[i], "_ids")
   assign(x = disease_vector, 
@@ -116,8 +123,7 @@ for (i in 1:nrow(all_combis)) {
                              disease = c(rep(all_combis$diseases[i], length(eval(as.symbol(disease_vector)))),
                                          rep("control", length(control_ids)))
   )
-  
-  
+
   # prepare-combine-data
   data01 <- all_mirnas %>% 
     # filter control patients and from {disease}_ids
@@ -446,13 +452,13 @@ for (i in 1:nrow(all_combis)) {
       select(model, .config, roc_auc=mean, rank) -> rankings
     
     top2models_grid <- rankings$model[1:2]
-    for (i in 1:length(all_workflows$info)) {
-      if (all_workflows$info[[i]]$model == top2models_grid[1]) {
+    for (j in 1:length(all_workflows$info)) {
+      if (all_workflows$info[[j]]$model == top2models_grid[1]) {
         topmodel1_grid <- all_workflows$wflow_id[i]
       }
       
-      if (all_workflows$info[[i]]$model == top2models_grid[2]) {
-        topmodel2_grid <- all_workflows$wflow_id[i]
+      if (all_workflows$info[[j]]$model == top2models_grid[2]) {
+        topmodel2_grid <- all_workflows$wflow_id[j]
       }
     }
     
@@ -479,7 +485,6 @@ for (i in 1:nrow(all_combis)) {
            width = 14, height = 10, 
            units = "in"  # default
     )
-    
   
     # inspect hyperparameter results for specific model
     autoplot(grid_results, id = topmodel1_grid, metric = "roc_auc")+
@@ -510,7 +515,6 @@ for (i in 1:nrow(all_combis)) {
            width = 14, height = 10, 
            units = "in"  # default
     )
-    
   }
   
   ###
@@ -521,7 +525,7 @@ for (i in 1:nrow(all_combis)) {
   race_ctrl <-
     control_race(
       verbose = TRUE,
-      verbose_elim = TRUE,
+      verbose_elim = FALSE,
       allow_par = TRUE,
       save_pred = TRUE,
       burn_in = 3,
@@ -558,20 +562,20 @@ for (i in 1:nrow(all_combis)) {
   
   num_race_models <- sum(collect_metrics(race_results)$n)
   
-  # PLOT results
+  # PLOT results ----------------------------------------------
   race_results %>% 
     rank_results() %>% 
     filter(.metric == "roc_auc") %>% 
     select(model, .config, roc_auc=mean, rank) -> rankings_race
   
   top2models_race <- rankings_race$model[1:2]
-  for (i in 1:length(all_workflows$info)) {
-    if (all_workflows$info[[i]]$model == top2models_race[1]) {
+  for (j in 1:length(all_workflows$info)) {
+    if (all_workflows$info[[j]]$model == top2models_race[1]) {
       topmodel1_race <- all_workflows$wflow_id[i]
     }
     
-    if (all_workflows$info[[i]]$model == top2models_race[2]) {
-      topmodel2_race <- all_workflows$wflow_id[i]
+    if (all_workflows$info[[j]]$model == top2models_race[2]) {
+      topmodel2_race <- all_workflows$wflow_id[j]
     }
   }
   
@@ -584,8 +588,9 @@ for (i in 1:nrow(all_combis)) {
     geom_text(aes(y = mean - 0.05, label = wflow_id), angle = 45, hjust = 1, size =3) +
     lims(y = c(0.6, 1.0)) +
     ylab("ROC-AUC")+
-    labs(title="Ranking models",
-         subtitle="Racing approach")+
+    labs(title=paste0("Ranking models: ", text_disease, ", miRNA_set: ", 
+                      str_to_upper(all_combis$analysis[i])),
+         subtitle= paste0("Racing approach | n_grids evaluated: ", num_race_models))+
     ggthemes::theme_few()+
     theme(legend.position = "none") -> plot_tune_race_ranking
   
@@ -597,12 +602,12 @@ for (i in 1:nrow(all_combis)) {
          units = "in"  # default
   )
   
-  
   # inspect hyperparameter results for specific model
   autoplot(race_results, id = topmodel1_race, metric = "roc_auc")+
     ylab("ROC-AUC")+
-    labs(title="Hyperparameter Performance - Racing Approach",
-         subtitle = stringr::str_to_upper(topmodel1_race))+
+    labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
+                      str_to_upper(all_combis$analysis[i])),
+         subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel1_race))) +
     ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel1
   
   filename_plot_tune_race_hyperpars_topmodel1 <- paste0("output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
@@ -615,8 +620,9 @@ for (i in 1:nrow(all_combis)) {
   
   autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
     ylab("ROC-AUC")+
-    labs(title="Hyperparameter Performance - Racing Approach",
-         subtitle = stringr::str_to_upper(topmodel2_race))+
+    labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
+                      str_to_upper(all_combis$analysis[i])),
+         subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel2_race))) +
     ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel2
   
   filename_plot_tune_race_hyperpars_topmodel2 <- paste0("output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 

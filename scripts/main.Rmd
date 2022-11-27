@@ -23,7 +23,7 @@ output:
     latex_engine: xelatex
 #bibliography: ../references/refs_ba.bib
 ---
-"baguette", "DALEXtra", "finetune", "rules", "tidymodels", "vetiver", "workflowsets"
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 figurespath <- paste0("../reports/", 
@@ -40,6 +40,7 @@ library(tidyr)
 library(stringr)
 library(purrr)
 library(ggplot2)
+library(ggrepel)
 library(ggthemes)
 library(kableExtra)
 library(skimr)
@@ -478,132 +479,92 @@ all_workflows <- all_workflows %>%
 ### Tuning the models with small grid
 
 ```{r tune-grid-workflows}
-set.seed(123)
-# the workflow_map() function will apply the same function to all of the workflows in the set
-## the default is fn="tune_grid"
-grid_ctrl <- 
-  control_grid(
-    save_pred = TRUE,
-    pkgs = NULL,
-    event_level = "first",  # default
-    parallel_over = "everything",
-    save_workflow = TRUE
-  )
+## outsourced to `scripts/model.R`
 
-time1 <- Sys.time()
-grid_results <- 
-  all_workflows %>% 
-  workflow_map(
-    # options to `tune_grid()`
-    resamples = folds,
-    #grid = 25,  # grid specifed above
-    metrics = metric_set(roc_auc),
-    control = grid_ctrl,
-    # options to `workflow_map()`
-    seed = 20221111,
-    verbose = TRUE
-  )
-time2 <- Sys.time()
-time.diff.grid <- time2-time1
+# select DISEASE and ANALYSIS from path -> choose last one trained
+index <- str_detect(string = list.files(path = "../output/tuning_results"), pattern = text_disease)  & 
+  str_detect(list.files(path = "../output/tuning_results"), pattern = str_to_upper(params$analysis)) & 
+  str_detect(list.files(path = "../output/tuning_results"), pattern = "tune_grid")
 
-num_grid_models <- nrow(collect_metrics(grid_results, summarize = FALSE))
+if(index != FALSE) {   # if no models tuned and saved index evaluates to FALSE!
+  grid_results <- readRDS(
+    dplyr::last(list.files(path = "../output/tuning_results", full.names = TRUE)[index])
+    )
+
+  num_grid_models <- nrow(collect_metrics(grid_results, summarize = FALSE))
+}
 ```
-
-Tune grid: `r time.diff.grid`.
 
 What do our `grid_results` look like?
 
 ```{r workflow-sets-grid-print}
-#grid_results
-grid_results %>% 
-  rank_results() %>% 
-  filter(.metric == "roc_auc") %>% 
-  select(model, .config, roc_auc=mean, rank) -> rankings
-
-top2models_grid <- rankings$model[1:2]
-for (i in 1:length(all_workflows$info)) {
-  if (all_workflows$info[[i]]$model == top2models_grid[1]) {
-    topmodel1_grid <- all_workflows$wflow_id[i]
+if(index != FALSE) {
+  #grid_results
+  grid_results %>% 
+    rank_results() %>% 
+    filter(.metric == "roc_auc") %>% 
+    select(model, .config, roc_auc=mean, rank) -> rankings
+  
+  top2models_grid <- rankings$model[1:2]
+  for (i in 1:length(all_workflows$info)) {
+    if (all_workflows$info[[i]]$model == top2models_grid[1]) {
+      topmodel1_grid <- all_workflows$wflow_id[i]
+    }
+    
+      if (all_workflows$info[[i]]$model == top2models_grid[2]) {
+      topmodel2_grid <- all_workflows$wflow_id[i]
+    }
   }
   
-    if (all_workflows$info[[i]]$model == top2models_grid[2]) {
-    topmodel2_grid <- all_workflows$wflow_id[i]
-  }
+  autoplot(
+     grid_results,
+     rank_metric = "roc_auc",  # <- how to order models
+     metric = "roc_auc",       # <- which metric to visualize
+     select_best = TRUE     # <- one point per workflow
+  ) +
+    geom_text(aes(y = mean - 0.05, label = wflow_id), angle = 45, hjust = 1, size =3) +
+    lims(y = c(0.6, 1.0)) +
+    labs(title="Ranking models",
+         subtitle="Grid approach")+
+    ylab("ROC-AUC")+
+    ggthemes::theme_few()+
+    theme(legend.position = "none")
+  
+  # inspect hyperparameter results for specific model
+  autoplot(grid_results, id = topmodel1_grid, metric = "roc_auc")+
+    ylab("ROC-AUC")+
+    labs(title="Hyperparameter Performance",
+         subtitle = stringr::str_to_upper(topmodel1_grid))+
+    ggthemes::theme_few()
+  
+  autoplot(grid_results, id = topmodel2_grid, metric = "roc_auc")+
+    ylab("ROC-AUC")+
+    labs(title="Hyperparameter Performance - Grid Approach",
+         subtitle = stringr::str_to_upper(topmodel2_grid))+
+    ggthemes::theme_few()
 }
-```
-
-```{r workflow-sets-plot-rank}
-autoplot(
-   grid_results,
-   rank_metric = "roc_auc",  # <- how to order models
-   metric = "roc_auc",       # <- which metric to visualize
-   select_best = TRUE     # <- one point per workflow
-) +
-  geom_text(aes(y = mean - 0.05, label = wflow_id), angle = 45, hjust = 1, size =3) +
-  lims(y = c(0.6, 1.0)) +
-  labs(title="Ranking models",
-       subtitle="Grid approach")+
-  ylab("ROC-AUC")+
-  ggthemes::theme_few()+
-  theme(legend.position = "none")
-
-# inspect hyperparameter results for specific model
-autoplot(grid_results, id = topmodel1_grid, metric = "roc_auc")+
-  ylab("ROC-AUC")+
-  labs(title="Hyperparameter Performance",
-       subtitle = stringr::str_to_upper(topmodel1_grid))+
-  ggthemes::theme_few()
-
-autoplot(grid_results, id = topmodel2_grid, metric = "roc_auc")+
-  ylab("ROC-AUC")+
-  labs(title="Hyperparameter Performance - Grid Approach",
-       subtitle = stringr::str_to_upper(topmodel2_grid))+
-  ggthemes::theme_few()
 ```
 
 
 ### Efficiently screening models
 
 ```{r workflow-sets-race}
-library(finetune)
+## outsourced to `scripts/model.R`
 
-set.seed(123)
-race_ctrl <-
-   control_race(
-     verbose = TRUE,
-     verbose_elim = TRUE,
-     allow_par = TRUE,
-     save_pred = TRUE,
-     burn_in = 3,
-     num_ties = 10,
-     alpha = 0.05,
-     randomize = TRUE,
-     pkgs = NULL,
-     event_level = "first",
-     parallel_over = "everything",
-     save_workflow = TRUE
-   )
+# select DISEASE and ANALYSIS from path -> choose last one trained
+index <- str_detect(string = list.files(path = "../output/tuning_results"), pattern = text_disease)  & 
+  str_detect(list.files(path = "../output/tuning_results"), pattern = str_to_upper(params$analysis)) & 
+  str_detect(list.files(path = "../output/tuning_results"), pattern = "tune_race")
 
-time1 <- Sys.time()
-race_results <-  all_workflows %>%
-   workflow_map(
-      "tune_race_anova",
-      # options to `tune_race_anova()`
-      resamples = folds,
-      # grid = 25,  # grid specified to workflow_map above
-      metrics = metric_set(roc_auc),
-      control = race_ctrl,
-      # options to `workflow_map()`
-      seed = 20221111,
-      verbose = TRUE
-   )
-time2 <- Sys.time()
-time.diff.race <- time2-time1
+if(index != FALSE) {   # if no models tuned and saved index evaluates to FALSE!
+  race_results <- readRDS(
+    dplyr::last(list.files(path = "../output/tuning_results", full.names = TRUE)[index])
+    )
 
-num_race_models <- sum(collect_metrics(race_results)$n)
+  num_race_models <- nrow(collect_metrics(race_results, summarize = FALSE))
+}
 ```
 
-Tune grid: `r time.diff.race`.
 
 ```{r workflow-sets-plot-rank-race}
 race_results %>% 
@@ -651,7 +612,6 @@ autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
 ```
 
 
-
 ```{r workflow-sets-racing-concordance}
 matched_results <- 
    rank_results(race_results, select_best = TRUE) %>% 
@@ -664,7 +624,6 @@ matched_results <-
    ) %>%  
    filter(.metric == "roc_auc")
 
-library(ggrepel)
 matched_results %>% 
   ggplot(aes(x = complete, y = race)) + 
   geom_abline(lty = 3) + 
@@ -748,7 +707,7 @@ test_results1 %>%
   mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
   roc_curve(disease, !!sym(pred_string), event_level="second") %>%
   ggplot(aes(1 - specificity, sensitivity)) +
-  geom_line(size = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
+  geom_line(linewidth = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
   geom_abline(lty = 2, color = ggthemes_data$few$colors$Dark[1,2][[1]], size = 1.2, alpha=0.5) +
   geom_path(show.legend = FALSE) +
   coord_equal() +
@@ -884,7 +843,7 @@ for (i in seq_along(1:nrow(race_results)) ) {
     mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
     roc_curve(disease, !!sym(pred_string), event_level="second") %>%
     ggplot(aes(1 - specificity, sensitivity)) +
-    geom_line(size = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
+    geom_line(linewidth = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
     geom_abline(lty = 2, color = ggthemes_data$few$colors$Dark[1,2][[1]], size = 1.2, alpha=0.5) +
     geom_path(show.legend = FALSE) +
     coord_equal() +
