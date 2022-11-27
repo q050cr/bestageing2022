@@ -53,6 +53,7 @@ library(workflowsets)
 library(baguette)
 library(rules)
 library(finetune)
+library(DALEXtra)
 tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 caching <- FALSE
@@ -482,13 +483,13 @@ all_workflows <- all_workflows %>%
 ## outsourced to `scripts/model.R`
 
 # select DISEASE and ANALYSIS from path -> choose last one trained
-index <- str_detect(string = list.files(path = "../output/tuning_results"), pattern = text_disease)  & 
+index_grid <- str_detect(string = list.files(path = "../output/tuning_results"), pattern = text_disease)  & 
   str_detect(list.files(path = "../output/tuning_results"), pattern = str_to_upper(params$analysis)) & 
   str_detect(list.files(path = "../output/tuning_results"), pattern = "tune_grid")
 
-if(index != FALSE) {   # if no models tuned and saved index evaluates to FALSE!
+if( any(index_grid) == TRUE ) {   # if no models tuned and saved index evaluates to FALSE!
   grid_results <- readRDS(
-    dplyr::last(list.files(path = "../output/tuning_results", full.names = TRUE)[index])
+    dplyr::last(list.files(path = "../output/tuning_results", full.names = TRUE)[index_grid])
     )
 
   num_grid_models <- nrow(collect_metrics(grid_results, summarize = FALSE))
@@ -498,7 +499,7 @@ if(index != FALSE) {   # if no models tuned and saved index evaluates to FALSE!
 What do our `grid_results` look like?
 
 ```{r workflow-sets-grid-print}
-if(index != FALSE) {
+if( any(index_grid) == TRUE ) {
   #grid_results
   grid_results %>% 
     rank_results() %>% 
@@ -506,13 +507,13 @@ if(index != FALSE) {
     select(model, .config, roc_auc=mean, rank) -> rankings
   
   top2models_grid <- rankings$model[1:2]
-  for (i in 1:length(all_workflows$info)) {
-    if (all_workflows$info[[i]]$model == top2models_grid[1]) {
+  for (j in 1:length(all_workflows$info)) {
+    if (all_workflows$info[[j]]$model == top2models_grid[1]) {
       topmodel1_grid <- all_workflows$wflow_id[i]
     }
     
-      if (all_workflows$info[[i]]$model == top2models_grid[2]) {
-      topmodel2_grid <- all_workflows$wflow_id[i]
+    if (all_workflows$info[[j]]$model == top2models_grid[2]) {
+      topmodel2_grid <- all_workflows$wflow_id[j]
     }
   }
   
@@ -552,15 +553,14 @@ if(index != FALSE) {
 ## outsourced to `scripts/model.R`
 
 # select DISEASE and ANALYSIS from path -> choose last one trained
-index <- str_detect(string = list.files(path = "../output/tuning_results"), pattern = text_disease)  & 
+index_race <- str_detect(string = list.files(path = "../output/tuning_results"), pattern = text_disease)  & 
   str_detect(list.files(path = "../output/tuning_results"), pattern = str_to_upper(params$analysis)) & 
   str_detect(list.files(path = "../output/tuning_results"), pattern = "tune_race")
 
-if(index != FALSE) {   # if no models tuned and saved index evaluates to FALSE!
+if( any(index_race) == TRUE ) {   # if no models tuned and saved index evaluates to FALSE!
   race_results <- readRDS(
-    dplyr::last(list.files(path = "../output/tuning_results", full.names = TRUE)[index])
+    dplyr::last(list.files(path = "../output/tuning_results", full.names = TRUE)[index_race])
     )
-
   num_race_models <- nrow(collect_metrics(race_results, summarize = FALSE))
 }
 ```
@@ -573,13 +573,13 @@ race_results %>%
   select(model, .config, roc_auc=mean, rank) -> rankings_race
 
 top2models_race <- rankings_race$model[1:2]
-for (i in 1:length(all_workflows$info)) {
-  if (all_workflows$info[[i]]$model == top2models_race[1]) {
+for (j in 1:length(all_workflows$info)) {
+  if (all_workflows$info[[j]]$model == top2models_race[1]) {
     topmodel1_race <- all_workflows$wflow_id[i]
   }
   
-    if (all_workflows$info[[i]]$model == top2models_race[2]) {
-    topmodel2_race <- all_workflows$wflow_id[i]
+  if (all_workflows$info[[j]]$model == top2models_race[2]) {
+    topmodel2_race <- all_workflows$wflow_id[j]
   }
 }
 
@@ -597,41 +597,70 @@ autoplot(
   ggthemes::theme_few()+
   theme(legend.position = "none")
 
-# inspect hyperparameter results for specific model
-autoplot(race_results, id = topmodel1_race, metric = "roc_auc")+
-  ylab("ROC-AUC")+
-  labs(title="Hyperparameter Performance - Racing Approach",
-       subtitle = stringr::str_to_upper(topmodel1_race))+
-  ggthemes::theme_few()
-
-autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
-  ylab("ROC-AUC")+
-  labs(title="Hyperparameter Performance - Racing Approach",
-       subtitle = stringr::str_to_upper(topmodel2_race))+
-  ggthemes::theme_few()
+if( topmodel1_race != "KNN" &  topmodel1_race != "full_quad_KNN" ) {
+    #       Error in `geom_point()`:
+    #         ! Problem while computing aesthetics.
+    #       ℹ Error occurred in the 1st layer.
+    #       Caused by error in `FUN()`:
+    #         ! Objekt 'resamples' nicht gefunden
+    # inspect hyperparameter results for specific model
+    autoplot(race_results, id = topmodel1_race, metric = "roc_auc")+
+      ylab("ROC-AUC")+
+      labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
+                        str_to_upper(all_combis$analysis[i])),
+           subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel1_race))) +
+      ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel1
+    
+    filename_plot_tune_race_hyperpars_topmodel1 <- paste0("../output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
+                                                          text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
+                                                          ".png")
+    ggsave(filename = filename_plot_tune_race_hyperpars_topmodel1, plot = plot_tune_race_hyperpars_topmodel1, 
+           width = 14, height = 10, 
+           units = "in"  # default
+    )
+}
+  
+if( topmodel2_race != "KNN" &  topmodel2_race != "full_quad_KNN" ) {
+    autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
+      ylab("ROC-AUC")+
+      labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
+                        str_to_upper(all_combis$analysis[i])),
+           subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel2_race))) +
+      ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel2
+    
+    filename_plot_tune_race_hyperpars_topmodel2 <- paste0("../output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
+                                                          text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
+                                                          ".png")
+    ggsave(filename = filename_plot_tune_race_hyperpars_topmodel2, plot = plot_tune_race_hyperpars_topmodel2, 
+           width = 14, height = 10, 
+           units = "in"  # default
+    )
+}
 ```
 
 
 ```{r workflow-sets-racing-concordance}
-matched_results <- 
-   rank_results(race_results, select_best = TRUE) %>% 
-   select(wflow_id, .metric, race = mean, config_race = .config) %>% 
-   inner_join(
-      rank_results(grid_results, select_best = TRUE) %>% 
-         select(wflow_id, .metric, complete = mean, 
-                config_complete = .config, model),
-      by = c("wflow_id", ".metric"),
-   ) %>%  
-   filter(.metric == "roc_auc")
-
-matched_results %>% 
-  ggplot(aes(x = complete, y = race)) + 
-  geom_abline(lty = 3) + 
-  geom_point() + 
-  geom_text_repel(aes(label = model)) +
-  coord_obs_pred() + 
-  labs(x = "Complete Grid ROC-AUC", y = "Racing ROC-AUC") +
-  ggthemes::theme_few()
+if ( any(index_grid) == TRUE  ) {
+  matched_results <- 
+     rank_results(race_results, select_best = TRUE) %>% 
+     select(wflow_id, .metric, race = mean, config_race = .config) %>% 
+     inner_join(
+        rank_results(grid_results, select_best = TRUE) %>% 
+           select(wflow_id, .metric, complete = mean, 
+                  config_complete = .config, model),
+        by = c("wflow_id", ".metric"),
+     ) %>%  
+     filter(.metric == "roc_auc")
+  
+  matched_results %>% 
+    ggplot(aes(x = complete, y = race)) + 
+    geom_abline(lty = 3) + 
+    geom_point() + 
+    geom_text_repel(aes(label = model)) +
+    coord_obs_pred() + 
+    labs(x = "Complete Grid ROC-AUC", y = "Racing ROC-AUC") +
+    ggthemes::theme_few()
+}
 ```
 
 ### Fit model to training data
@@ -694,12 +723,6 @@ predictions <- predictions %>%
          .pred_class_youden = factor(.pred_class_youden, levels = levels(predictions$disease))
   )
 
-##   Confusion Matrix
-## predictions %>%
-#  conf_mat(disease, .pred_class)
-## predictions %>%
-#  conf_mat(disease, .pred_class_youden)
-
 # roc curve
 test_results1 %>%
   collect_predictions() %>%
@@ -716,12 +739,20 @@ test_results1 %>%
   annotate("text", x = 0.4, y=0.2, label = paste(topmodel1_race, "-AUC=", round(auc_test,3), sep = ""), size=3, hjust = 0) +
   annotate("text", x = 0.4, y=0.15, label = paste(topmodel1_race, "-", ci.auc.text, sep = ""), size=3, hjust = 0) +
   ggthemes::theme_few()+
-  ggthemes::scale_color_few()
+  ggthemes::scale_color_few() -> plot_ROC_topmodel1
+plot_ROC_topmodel1
+
+filename_plot_ROC_topmodel1 <- paste0("../output/plots/", Sys.Date(), "_ROC_topmodel1_", 
+                                          text_disease, "_analysis_", str_to_upper(params$analysis),
+                                          ".png")
+ggsave(filename = filename_plot_ROC_topmodel1, plot = plot_ROC_topmodel1, 
+       width = 12, height = 12, 
+       units = "in"  # default
+)
 ```
 
 
 ```{r calibration-plot-test-check, figures-side, fig.show="hold", out.width="33%", warning=FALSE}
-
 ## factor order usually alphabetically! (acs < control)
 predictions <- predictions %>% 
   mutate(.pred_class_youden = factor(.pred_class_youden, levels=c("control", params$disease)),
@@ -756,35 +787,33 @@ f1 <- c()
 conf_mat_list <- list()
 predictions_loop <- list()
 caret_conf_mat <- list()
-
 coefficients_loop <- list()
 
-
-for (i in seq_along(1:nrow(race_results)) ) {
+for (models in seq_along(1:nrow(race_results)) ) {
   ## retrieve ID
-  wflow_id <- race_results[[1]][i]
+  wflow_id <- race_results[[1]][models]
   # select best hyperparams
-  best_results[[i]] <- 
+  best_results[[models]] <- 
      race_results %>% 
      extract_workflow_set_result(wflow_id) %>% 
      select_best(metric = "roc_auc")
   # fit to training data, and calculate on test data
-  test_results[[i]] <- 
+  test_results[[models]] <- 
      race_results %>% 
      extract_workflow(wflow_id) %>% 
-     finalize_workflow(best_results[[i]]) %>% 
+     finalize_workflow(best_results[[models]]) %>% 
      last_fit(split = dat_split)
   
   ## 1) STORE TEST_SET_RESULTS -----------
   testresults_save <- paste0(format(params$date, "%Y%m%d"),  "_TEST_RESULTS_", wflow_id, "_", "DISEASE_",
                       params$disease,"_ANALYSIS_", params$analysis)
   filename.testresults <- paste0("../output/test_set_results/", testresults_save, ".rds")
-  saveRDS(test_results[[i]], file = filename.testresults)
+  saveRDS(test_results[[models]], file = filename.testresults)
   
   ## 2) STORE MODEL ### ------------------
-  last_fit_metrics <- collect_metrics(test_results[[i]])
+  last_fit_metrics <- collect_metrics(test_results[[models]])
   # extract model
-  last_fit_model <- extract_workflow(test_results[[i]])
+  last_fit_model <- extract_workflow(test_results[[models]])
 
   ## VETIVER MODEL DEPLOYMENT
   modelname <- paste0(format(params$date, "%Y%m%d"),  "_MODEL_", wflow_id, "_", "DISEASE_",
@@ -800,22 +829,22 @@ for (i in seq_along(1:nrow(race_results)) ) {
   saveRDS(last_fit_model, file = filename.model.tidymodels)
   ###
   
-  aucs <- append(aucs, collect_metrics(test_results[[i]])[[3]][2])
-  accuracies <- append(accuracies, collect_metrics(test_results[[i]])[[3]][1])
+  aucs <- append(aucs, collect_metrics(test_results[[models]])[[3]][2])
+  accuracies <- append(accuracies, collect_metrics(test_results[[models]])[[3]][1])
   
-  predictions_loop[[i]] <- test_results[[i]] %>%
+  predictions_loop[[models]] <- test_results[[models]] %>%
     collect_predictions() 
   
   ### --> get optimal threshold (YOUDEN INDEX) & extract CI AUC
-  my_roc <- pROC::roc(predictions_loop[[i]]$disease, predictions_loop[[i]][[pred_string]])
+  my_roc <- pROC::roc(predictions_loop[[models]]$disease, predictions_loop[[models]][[pred_string]])
   youden.threshold <- coords(my_roc, x="best", best.method="youden", ret = "threshold")[[1]]
   ci.auc <- ci.auc(my_roc)
   ci.auc.text <- paste("AUC CI: ", round(ci.auc[1],2), "-",round(ci.auc[3],2), " DeLong" , sep = "")
   ci.auc.texts <- append(ci.auc.texts, paste("AUC CI: ", round(ci.auc[1],2), "-",round(ci.auc[3],2), " DeLong" , sep = ""))
   # threshold for spec & sens
-  predictions_loop[[i]] <- predictions_loop[[i]] %>% 
+  predictions_loop[[models]] <- predictions_loop[[models]] %>% 
     mutate(.pred_class_youden = ifelse(predictions[[pred_string]] <= youden.threshold, "control", params$disease ),
-           .pred_class_youden = factor(.pred_class_youden, levels = levels(predictions_loop[[i]]$disease))
+           .pred_class_youden = factor(.pred_class_youden, levels = levels(predictions_loop[[models]]$disease))
     )
   
   #conf_mat_list[[i]] <- predictions_loop[[i]] %>%
@@ -824,21 +853,21 @@ for (i in seq_along(1:nrow(race_results)) ) {
   # print(conf_mat_list[[i]])
   
   # CARET CONF MATRIX
-  caret_conf_mat[[i]] <-  caret::confusionMatrix(predictions_loop[[i]]$.pred_class_youden, 
-                                                 predictions_loop[[i]]$disease, 
+  caret_conf_mat[[models]] <-  caret::confusionMatrix(predictions_loop[[models]]$.pred_class_youden, 
+                                                 predictions_loop[[models]]$disease, 
                                                  positive = params$disease)
-  print(caret_conf_mat[[i]])
-  sensitiv <- append(sensitiv, caret_conf_mat[[i]][[4]][1])
-  specific <- append(specific, caret_conf_mat[[i]][[4]][2])
-  ppv <- append(ppv, caret_conf_mat[[i]][[4]][3])
-  npv <- append(npv, caret_conf_mat[[i]][[4]][4])
-  precision <- append(precision, caret_conf_mat[[i]][[4]][5])
-  recall <- append(recall, caret_conf_mat[[i]][[4]][6])
-  f1 <- append(f1, caret_conf_mat[[i]][[4]][7])
+  print(caret_conf_mat[[models]])
+  sensitiv <- append(sensitiv, caret_conf_mat[[models]][[4]][1])
+  specific <- append(specific, caret_conf_mat[[models]][[4]][2])
+  ppv <- append(ppv, caret_conf_mat[[models]][[4]][3])
+  npv <- append(npv, caret_conf_mat[[models]][[4]][4])
+  precision <- append(precision, caret_conf_mat[[models]][[4]][5])
+  recall <- append(recall, caret_conf_mat[[models]][[4]][6])
+  f1 <- append(f1, caret_conf_mat[[models]][[4]][7])
   
   # TEST ROC CURVE
   subtitle <- paste(wflow_id, " - Test set", sep = "")
-  roc_plot_test <- predictions_loop[[i]] %>% 
+  roc_plot_test <- predictions_loop[[models]] %>% 
       ## factor order usually alphabetically! (acs < control)
     mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
     roc_curve(disease, !!sym(pred_string), event_level="second") %>%
@@ -849,20 +878,29 @@ for (i in seq_along(1:nrow(race_results)) ) {
     coord_equal() +
     labs(title = paste0("ROC Curve (Predict ", text_disease, ")"),
          subtitle = subtitle) +
-    annotate("text", x = 0.4, y=0.2, label = paste(wflow_id,"-AUC=", round(aucs[i],3), sep = ""), size=3, hjust = 0) +
-    annotate("text", x = 0.4, y=0.15, label = paste(wflow_id, "-", ci.auc.texts[i], sep = ""), size=3, hjust = 0) +    
+    annotate("text", x = 0.4, y=0.2, label = paste(wflow_id,"-AUC=", round(aucs[models],3), sep = ""), size=3, hjust = 0) +
+    annotate("text", x = 0.4, y=0.15, label = paste(wflow_id, "-", ci.auc.texts[models], sep = ""), size=3, hjust = 0) +    
     ggthemes::theme_few()+
     ggthemes::scale_color_few()+
     theme(plot.subtitle = element_text(size = 7, color = "black"))
   print(roc_plot_test)
   
+  filename_plot_ROC_wflow_id <- paste0("../output/plots/", Sys.Date(), "_ROC_", wflow_id, "_",  
+                                          text_disease, "_analysis_", str_to_upper(params$analysis),
+                                          ".png")
+  ggsave(filename = filename_plot_ROC_wflow_id, plot = roc_plot_test, 
+         width = 12, height = 12, 
+         units = "in"  # default
+  )
+  
+  
   ## factor order usually alphabetically! (acs < control)
-  predictions_loop[[i]] <- predictions_loop[[i]] %>% 
+  predictions_loop[[models]] <- predictions_loop[[models]] %>% 
     mutate(.pred_class_youden = factor(.pred_class_youden, levels=c("control", params$disease)),
            disease = factor(disease, levels=c("control", params$disease)),
            )   
 
-  gbm::calibrate.plot(y = predictions_loop[[i]]$disease, p = predictions_loop[[i]][[pred_string]], 
+  gbm::calibrate.plot(y = predictions_loop[[models]]$disease, p = predictions_loop[[models]][[pred_string]], 
                     main=paste(wflow_id, "-Calibration Plot", sep=""), 
                     line.par = list(col = "black"), shade.col="grey", xlim=c(0,0.6))
 }
@@ -909,7 +947,6 @@ saveRDS(performance.summary.table, file = filename.df.rds)
 We compute variable importance by permutating features. If shuffling a column causes a large degradation in model performance, it is important and vica versa. This approach is model agnostic. 
 
 ```{r}
-library(DALEXtra)
 set.seed(20220908)
 model_vars <- simple_rec %>% summary()
 index <- #model_vars$variable != "id" &    # needed for global importance since in recipe
