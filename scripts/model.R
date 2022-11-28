@@ -13,7 +13,6 @@ library(purrr)
 library(ggplot2)
 library(ggrepel)
 library(ggthemes)
-library(kableExtra)
 library(skimr)
 library(tableone)
 library(pROC)
@@ -280,7 +279,7 @@ for (i in 1:nrow(all_combis)) {
   mlp_nnet_spec <-
     mlp(hidden_units = tune(), penalty = tune(), 
         epochs = tune()) %>%
-    set_engine('nnet') %>%
+    set_engine('keras') %>%  #`nnet`
     set_mode('classification')
   
   ##
@@ -384,7 +383,7 @@ for (i in 1:nrow(all_combis)) {
   
   grid_neural_network <- mlp_nnet_spec %>%   # 3 hyperparams
     extract_parameter_set_dials() %>% 
-    grid_latin_hypercube(size=150)
+    grid_latin_hypercube(size=100)
   
   grid_full_quad_logistic_reg <- logistic_reg_glmnet_spec %>%  # 2 hyperparams
     extract_parameter_set_dials() %>% 
