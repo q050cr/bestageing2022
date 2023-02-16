@@ -1,7 +1,9 @@
 # R files
+.DS_Store
 .Rproj.user
 .Rhistory
 .RData
+.Rprofile
 .Ruserdata
 ._bestageing2022.Rproj
 ._*
