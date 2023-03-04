@@ -1,0 +1,59 @@
+---
+title: "`r params$doc_title`"
+author: | 
+        | christoph.reich@med.uni-heidelberg.de 
+        | benjamin.meder@med.uni-heidelberg.de
+        | Klinik für Kardiologie, Angiologie und Pneumologie
+        | Universitätsklinikum Heidelberg
+        | 
+date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
+params:
+  date: !r Sys.Date()
+  doc_title: "The Default Title"
+output: 
+  html_document:
+    theme: paper
+    toc: true
+    #number_sections: true
+    toc_float: true
+    toc_depth: 2
+    df_print: kable
+    latex_engine: xelatex
+#bibliography: ../references/refs_ba.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+figurespath <- paste0("../reports/", 
+                      format(Sys.time(), "%Y%m%d"), '_ba_survival_figures/')
+knitr::opts_chunk$set(fig.path = figurespath)
+
+caching <- FALSE
+```
+
+
+![AG Meder](../../img/meder_presentation_heart.png)
+
+# Discussion
+
+- Issues open for discussion
+
+# Version Update
+
+The new report version includes: 
+
+- First analysis
+
+# Introduction
+
+```{r}
+readRDS(file = "../output/")
+```
+
+
+
+
+
+
+
+
