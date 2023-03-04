@@ -10,11 +10,13 @@
 slurm*
 *error.out
 *slurm.out
+renv.lock
 
 # dirs
 data/
 figures/
 output/
+renv/
 reports/
 scripts/figures-ba/
 scripts/test/
