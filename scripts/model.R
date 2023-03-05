@@ -4,41 +4,41 @@
 # selection provided by `all_combis$diseases` and `all_combis$analysis`
 
 # dependencies ---------------------------------------------------------------
-library(readxl)
-library(janitor)
-library(dplyr)
-library(tidyr)
-library(stringr)
-library(purrr)
-library(ggplot2)
-library(ggrepel)
-library(ggthemes)
-library(skimr)
-library(tableone)
-library(pROC)
-library(tidymodels)
+library(readxl, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(janitor, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(dplyr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(tidyr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(stringr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(purrr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggplot2, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggrepel, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggthemes, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(skimr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(tableone, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(pROC, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(tidymodels, lib.loc = "/mnt/users/reich/programs/R/lib")
 options(tidymodels.dark = TRUE)
-library(discrim)  # naive bayes
-library(finetune)
-library(vetiver)
-library(workflowsets)
-library(baguette)
-library(rules)
+library(discrim, lib.loc = "/mnt/users/reich/programs/R/lib")  # naive bayes
+library(finetune, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(vetiver, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(workflowsets, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(baguette, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(rules, lib.loc = "/mnt/users/reich/programs/R/lib")
 tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 
 cores <- parallel::detectCores()
 if (!grepl("mingw32", R.Version()$platform)) {
-  library(doMC)
+  library(doMC, lib.loc = "/mnt/users/reich/programs/R/lib")
   registerDoMC(cores = cores/2)
 } else {
-  library(doParallel)
+  library(doParallel, lib.loc = "/mnt/users/reich/programs/R/lib")
   cl <- makePSOCKcluster(cores/2)
   registerDoParallel(cl)
 }
 
 
-tune_grid_eval <- FALSE
+tune_grid_eval <- FALSE  # otherwise only racing methods will be used for hyperpar tuning
 if ( !exists("all_combis")  ) {  # check if variable name exists
   diseases <- c("dcm", "acs", "cad", "hfref")
   analysis <- c("selected", "full")
@@ -50,10 +50,10 @@ if ( !exists("all_combis")  ) {  # check if variable name exists
 # load data ---------------------------------------------------------------
 
 # MIRNA DAT
-model_data1 <- clean_names(readRDS(file = '../BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
+model_data1 <- clean_names(readRDS(file = '../../BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
 
-load(file = "../BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
-load(file = "../BestAgeing/data/data.rda")  # "UKL-HD" n=731
+load(file = "../../BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
+load(file = "../../BestAgeing/data/data.rda")  # "UKL-HD" n=731
 all_mirnas <- clean_names(mirnas)
 names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
 mirnas_disease <- clean_names(data)
@@ -62,7 +62,7 @@ rm(data, mirnas)
 
 # load-mirnas-from_research
 # create vector of described mirnas
-load("../BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
+load("../../BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
 # check if all mirnas are named the same
 researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
   str_replace(pattern = "mi_r", replacement = "mir")
@@ -75,7 +75,7 @@ researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hs
 ###
 # load-metadat --
 ## DIAGNOSES DAT
-load(file = "../BestAgeing/data/diagnoses_df.rda")
+load(file = "../../BestAgeing/data/diagnoses_df.rda")
 
 ## SURVIVAL DAT
 survival_dat <- clean_names(readRDS(file = 'data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
@@ -83,15 +83,18 @@ survival_dat <- clean_names(readRDS(file = 'data/202211908_XMELD_abfrage_best_ag
 
 ## metadata from DB
 # https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
-load(file = "../BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+load(file = "../../BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
 clean_all_meta <- clean_all_meta %>% 
   mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
 # cath data? "hkdb"
 
 ## load all original metadat xlsx files again to make sure that also overlapped 
 #patients (e.g. dcm+cad) are in each group
-control_ids <- read_excel("../BestAgeing/data/pheno_controls.xlsx") %>% 
+control_ids <- read_excel("../../BestAgeing/data/pheno_controls.xlsx") %>% 
   dplyr::pull(BestAgeingCode)
+
+# "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
+control_ids <- control_ids[control_ids != "UKL-HD-00318"]
 
 
 ###
@@ -99,19 +102,9 @@ control_ids <- read_excel("../BestAgeing/data/pheno_controls.xlsx") %>%
 ###
 for (i in 1:nrow(all_combis)) {
   ## DATA FIRST
-  filename <- paste0("../BestAgeing/data/pheno_", all_combis$diseases[i], ".xlsx")
-  disease_vector <- paste0(all_combis$diseases[i], "_ids")
-  assign(x = disease_vector, 
-         value = read_excel(filename) %>% 
-           dplyr::pull(BestAgeingCode))
-  
-  disease_ident_df <- tibble(pat_id = c(eval(as.symbol(disease_vector)),control_ids), 
-                             disease = c(rep(all_combis$diseases[i], length(eval(as.symbol(disease_vector)))),
-                                         rep("control", length(control_ids)))
-  )
-  
+
   # create parameter specific {disease}_ids
-  filename <- paste0("../BestAgeing/data/pheno_", all_combis$diseases[i], ".xlsx")
+  filename <- paste0("../../BestAgeing/data/pheno_", all_combis$diseases[i], ".xlsx")
   disease_vector <- paste0(all_combis$diseases[i], "_ids")
   assign(x = disease_vector, 
          value = read_excel(filename) %>% 
@@ -406,7 +399,7 @@ for (i in 1:nrow(all_combis)) {
   # tune-grid-workflows -----------------------------------------
   ###
   
-  if (tune_grid_eval == TRUE) {
+  if (tune_grid_eval == TRUE) {   # otherwise only racing methods will be used for hyperpar tuning
     set.seed(123)
     # the workflow_map() function will apply the same function to all of the workflows in the set
     ## the default is fn="tune_grid"
