@@ -85,13 +85,17 @@ The new report version includes:
 
 # Introduction
 
+The rise of CV research in miRNAs began in 2005. I conducted an extensive pubmed search (script `pubmed_query.R`) and examined the number of publications in the cardiovascular field overall and for the individual diseases in the best ageing cohort. 
+
+![Pubmed Count of Papers on miRNAs in CV research](../output/pubmed/paper_counting_plot.png)
+
 ```{r load-mirna-data, include=FALSE, warning=FALSE}
 ## MIRNA DAT
-model_data1 <- clean_names(readRDS(file = '../../BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
+model_data1 <- clean_names(readRDS(file = '../../../BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
 
 
-load(file = "../../BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
-load(file = "../../BestAgeing/data/data.rda")  # "UKL-HD" n=731
+load(file = "/mnt/users/reich/BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
+load(file = "/mnt/users/reich/BestAgeing/data/data.rda")  # "UKL-HD" n=731
 all_mirnas <- clean_names(mirnas)
 names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
 mirnas_disease <- clean_names(data)
@@ -104,7 +108,7 @@ rm(data, mirnas)
 
 ```{r load-mirnas-from_research, include=FALSE, warning=FALSE}
 # create vector of described mirnas
-load("../../BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
+load("/mnt/users/reich/BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
 # check if all mirnas are named the same
 researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
   str_replace(pattern = "mi_r", replacement = "mir")
@@ -118,7 +122,7 @@ researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hs
 
 ```{r load-metadat, include=FALSE, warning=FALSE}
 ## DIAGNOSES DAT
-load(file = "../../BestAgeing/data/diagnoses_df.rda")
+load(file = "/mnt/users/reich/BestAgeing/data/diagnoses_df.rda")
 #load(file = "../../BestAgeing/data/diagnoses.rda")
 
 ## SURVIVAL DAT
@@ -127,13 +131,13 @@ survival_dat <- clean_names(readRDS(file = '../data/202211908_XMELD_abfrage_best
 
 ## metadata from DB
 # https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
-load(file = "../../BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+load(file = "/mnt/users/reich/BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
 clean_all_meta <- clean_all_meta %>% 
   mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
 # cath data? "hkdb"
 
 ## load all original metadat xlsx files again to make sure that also overlapped patients (e.g. dcm+cad) are in each group
-control_ids <- read_excel("../../BestAgeing/data/pheno_controls.xlsx") %>% 
+control_ids <- read_excel("/mnt/users/reich/BestAgeing/data/pheno_controls.xlsx") %>% 
   dplyr::pull(BestAgeingCode)
 
 ## 2023-03-05
@@ -141,7 +145,7 @@ control_ids <- read_excel("../../BestAgeing/data/pheno_controls.xlsx") %>%
 control_ids <- control_ids[control_ids != "UKL-HD-00318"]
 
 # create parameter specific {disease}_ids
-filename <- paste0("../../BestAgeing/data/pheno_", params$disease, ".xlsx")
+filename <- paste0("/mnt/users/reich/BestAgeing/data/pheno_", params$disease, ".xlsx")
 disease_vector <- paste0(params$disease, "_ids")
 assign(x = disease_vector, 
        value = read_excel(filename) %>% 
@@ -1050,19 +1054,92 @@ ggplot_imp(vip1, vip2)
 
 \clearpage
 
-# Differential miRNA Expression Analysis
+# MIGWAS data
 
-```{r}
-disease_vector <- c("ACS", "CAD", "DCM", "HFREF")
+```{r MIGWAS}
+
+## load Accession MIMAT of all miRNAs to synchronize miRNA names
+mirnas2549_v21_MIMAT <- readRDS("../data/Rdata/mirnas2549_v21_MIMAT.rds") %>% as_tibble() %>% 
+  mutate(TargetName = make_clean_names(TargetName)) %>% 
+  mutate(TargetName = str_replace(TargetName, pattern = "mi_r", replacement = "mir"))
+
+# sum(mirnas2549_v21_MIMAT$TargetName %in% colnames(all_mirnas)[-1])
+# sum(CAD_pheno_migwas_candidates$miRNA %in% CAD_pheno.mir.pval$miRNA)
 
 # load MIGWAS results data
+# 1 CAD
+CAD_pheno_migwas_candidates <- read.table(file = "../../MIGWAS/CAD_pheno_migwas_candidates.txt", header = FALSE) %>%   ## some miRNAs have multiple gene targets!!!!! not unique
+  as_tibble() %>% 
+  rename(percentile_score=V1,   # The percentile of scores indicating gene-miRNA target prediction certainty.
+         target_gene=V2, miRNA=V3, MIMAT_ID=V4) %>% 
+  left_join(mirnas2549_v21_MIMAT[2:3], by = c("MIMAT_ID"= "Accession"))
+# length(unique(CAD_pheno_migwas_candidates$TargetName))   52 miRNAS unique
+CAD_pheno_migwas_migwas_result <- read.table(file = "../../MIGWAS/CAD_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(tissue = V1, P_value = V2, Fold_change = V3) %>% 
+  arrange(P_value)
+CAD_pheno.gene.pval <- read.table(file = "../../MIGWAS/gene_P/CAD_pheno.gene.pval.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(gene=V1, P_value=V2)
+CAD_pheno.mir.pval <- read.table(file = "../../MIGWAS/miRNA_P/CAD_pheno.mir.pval.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(miRNA=V1, P_value=V2) 
+
+# 2 DCM
+DCM_pheno_migwas_candidates <- read.table(file = "../../MIGWAS/DCM_pheno_migwas_candidates.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(percentile_score=V1,   # The percentile of scores indicating gene-miRNA target prediction certainty.
+         target_gene=V2, miRNA=V3, MIMAT_ID=V4) %>% 
+  left_join(mirnas2549_v21_MIMAT[2:3], by = c("MIMAT_ID"= "Accession"))
+#length(unique(DCM_pheno_migwas_candidates$TargetName))   # 11 miRNAS unique
+DCM_pheno_migwas_migwas_result <- read.table(file = "../../MIGWAS/DCM_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(tissue = V1, P_value = V2, Fold_change = V3) %>% 
+  arrange(P_value)
+DCM_pheno.gene.pval <- read.table(file = "../../MIGWAS/gene_P/DCM_pheno.gene.pval.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(gene=V1, P_value=V2)
+DCM_pheno.mir.pval <- read.table(file = "../../MIGWAS/miRNA_P/DCM_pheno.mir.pval.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(miRNA=V1, P_value=V2)
+
+# 3 Heart Failure
+HF_pheno_migwas_candidates <- read.table(file = "../../MIGWAS/HF_pheno_migwas_candidates.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(percentile_score=V1,   # The percentile of scores indicating gene-miRNA target prediction certainty.
+         target_gene=V2, miRNA=V3, MIMAT_ID=V4) %>% 
+  left_join(mirnas2549_v21_MIMAT[2:3], by = c("MIMAT_ID"= "Accession"))
+# length(unique(HF_pheno_migwas_candidates$TargetName))   # 15 miRNAS unique
+HF_pheno_migwas_migwas_result <- read.table(file = "../../MIGWAS/HF_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(tissue = V1, P_value = V2, Fold_change = V3) %>% 
+  arrange(P_value)
+HF_pheno.gene.pval <- read.table(file = "../../MIGWAS/gene_P/HF_pheno.gene.pval.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(gene=V1, P_value=V2)
+HF_pheno.mir.pval <- read.table(file = "../../MIGWAS/miRNA_P/HF_pheno.mir.pval.txt", header = FALSE) %>% 
+  as_tibble() %>% 
+  rename(miRNA=V1, P_value=V2)
+```
 
 
 
-for(disease in disease_vector) {
-  de.results <- readRDS(dplyr::last(list.files(path = "../output/de_results", pattern = paste0("_de_results_DISEASE_", disease), full.names = TRUE)))
+# Differential miRNA Expression Analysis
+
+```{r volcano-plots-also-literature-and-migwas, figures-side, fig.show="hold", out.width="50%"}
+disease_vector <- c("ACS", "CAD", "DCM", "HFREF")
+migwas_result_list <- list("ACS_MIGWAS" = NULL, "CAD_MIGWAS" = CAD_pheno_migwas_candidates, "DCM_MIGWAS"=DCM_pheno_migwas_candidates, "HFREF_MIGWAS"=HF_pheno_migwas_candidates)
+
+for(disease in 1:length(disease_vector)) {
+  de.results <- readRDS(dplyr::last(list.files(path = "../output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
   
+  ### FDR calculation
   de.results$padj <- p.adjust(de.results$pval.t.test, method = "BH", n = length(de.results$pval.t.test))
+  de.results$padj.glm <- p.adjust(de.results$pval.glm, method = "BH", n = length(de.results$pval.t.test))
+  ## manual calc #-----------------------------------
+  # n.comparisons <- length(de.results$pval.t.test)
+  # inv.rank<-n.comparisons-rank(de.results$pval.t.test)
+  # adjusted.results.t.test<-de.results$pval.t.test*(n.comparisons)/(n.comparisons-inv.rank+1)
   
   de.results$diffexpressed <- "NO"
   # if log2Foldchange > 1.0 and pvalue < 0.05, set as "UP" 
@@ -1072,27 +1149,42 @@ for(disease in disease_vector) {
   de.results$diffexpressed[de.results$log2FoldChange < -1.0 & 
                              de.results$padj < 0.05] <- "DOWN"
   
-  log2folds_thresholds <- c(0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1)
-  for (i in log2folds_thresholds) {
-    if ( sum(de.results$diffexpressed != "NO"  ) < 15 ) {
-    de.results$diffexpressed[de.results$log2FoldChange > i & 
+  log2folds_thresholds <- c(1, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1)
+  for (i in 1:length(log2folds_thresholds)) {
+    if ( sum(de.results$diffexpressed != "NO") < 15 ) {
+    de.results$diffexpressed[de.results$log2FoldChange > log2folds_thresholds[i] & 
                                de.results$padj < 0.05] <- "UP"
     # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
-    de.results$diffexpressed[de.results$log2FoldChange < - i & 
+    de.results$diffexpressed[de.results$log2FoldChange < - log2folds_thresholds[i] & 
                                de.results$padj < 0.05] <- "DOWN"
-    log2folds_thresh <- i
+    log2folds_thresh <- log2folds_thresholds[i]
     } else{ 
-      log2folds_thresh <- 1
+      log2folds_thresh <- log2folds_thresholds[i]
       break
       }
   }
-  
+
   ## label miRNAs ######----------------------------------------
   de.results$delabel <- NA
   de.results$delabel[de.results$diffexpressed != "NO"] <- 
     de.results$miRNA[de.results$diffexpressed != "NO"]
-  # ONLY label miRNAs that are also known from LITERATURE (maybe also from MIGWAS later)
+  # ONLY label miRNAs that are also known from LITERATURE 
   de.results$delabel <- ifelse(de.results$delabel %in% researchMiRNAAccession$miRNAName_v21,  de.results$delabel, NA)
+  
+  ## color all literature miRNAs----------------------------------------
+  de.results$research_mirna <- ifelse(de.results$miRNA %in% researchMiRNAAccession$miRNAName_v21,  "Literature miRNA", "Not found in Literature")
+  
+  ## label MIGWAS #--------------------------------------------
+  de.results$delabel_migwas <- NA
+  migwas_mirna_results <- migwas_result_list[[disease]]
+  if(!is.null(migwas_mirna_results)) {
+    migwas.mirna.vector <- unique(migwas_mirna_results$TargetName)
+    # ONLY label miRNAs known from MIGWAS 
+    de.results$delabel_migwas <- ifelse(de.results$miRNA %in% migwas.mirna.vector,  de.results$miRNA, NA)
+    de.results$migwas <- ifelse(de.results$miRNA %in% migwas.mirna.vector,  "miRNA in MIGWAS", "Not in MIGWAS results")
+  } else{
+    de.results$migwas <- NA
+  }
   
   # custom volcano
   subtitle.custom <- paste0("log2foldchange = \u00b1 ", log2folds_thresh, " for significant miRNAs (p_adj < 0.05)")
@@ -1101,7 +1193,7 @@ for(disease in disease_vector) {
         geom_point(alpha=0.4, size=1) + 
         geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
         geom_hline(yintercept=-log10(0.05), alpha=0.3) + 
-        labs(title = paste0("Volcano plot of DE miRNAs in ", disease),
+        labs(title = paste0("Volcano plot of DE miRNAs in ", disease_vector[disease]),
               subtitle = subtitle.custom) +
         xlab("log2 fold change") + 
         ylab("-log10 adjusted p-value") + 
@@ -1109,14 +1201,76 @@ for(disease in disease_vector) {
               plot.title = element_text(size = rel(1.5), hjust = 0.5), 
               axis.title = element_text(size = rel(1.25)))+
         ggthemes::theme_few() +
-        ggthemes::scale_color_few()+
+        ggthemes::scale_color_few(name="Differentially expressed")+
         ggrepel::geom_text_repel(show.legend = FALSE) ->volcano_1
   print(volcano_1)
-  filename.volcano <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease, ".png")
+  
+  filename.volcano <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], ".png")
   ggsave(filename = filename.volcano, plot = volcano_1, 
            width = 12, height = 8, 
            units = "in"  # default
            )
+  
+  # Color all literature miRNAs
+  ggplot(data=de.results, aes(x=log2FoldChange, y=-log10(padj), col=research_mirna, label=delabel)) + 
+          geom_point(alpha=0.4, size=1 ) + 
+          geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
+          geom_hline(yintercept=-log10(0.05), alpha=0.3) + 
+          labs(title = paste0("Volcano plot of DE miRNAs in ", disease_vector[disease]),
+                subtitle = subtitle.custom) +
+          xlab("log2 fold change") + 
+          ylab("-log10 adjusted p-value") + 
+          theme(legend.position = "none", 
+                plot.title = element_text(size = rel(1.5), hjust = 0.5), 
+                axis.title = element_text(size = rel(1.25)))+
+          ggthemes::theme_few() +
+          ggthemes::scale_color_few(name="")+
+          ggrepel::geom_text_repel(show.legend = FALSE) ->volcano_2
+    print(volcano_2)
+    
+    filename.volcano2 <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_LITERATmiRNAs_ANNOT.png")
+    ggsave(filename = filename.volcano2, plot = volcano_2, 
+             width = 12, height = 8, 
+             units = "in"  # default
+             )
+  
+  
+  # MIGWAS Annotation Volcano
+  if(!is.null(migwas_mirna_results)) {
+    ggplot(data=de.results, aes(x=log2FoldChange, y=-log10(padj), col=migwas, label=delabel_migwas)) + 
+          geom_point(alpha=0.4, size=1 ) + 
+          geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
+          geom_hline(yintercept=-log10(0.05), alpha=0.3) + 
+          labs(title = paste0("Volcano plot of DE miRNAs in ", disease_vector[disease]),
+                subtitle = subtitle.custom) +
+          xlab("log2 fold change") + 
+          ylab("-log10 adjusted p-value") + 
+          theme(legend.position = "none", 
+                plot.title = element_text(size = rel(1.5), hjust = 0.5), 
+                axis.title = element_text(size = rel(1.25)))+
+          ggthemes::theme_few() +
+          ggthemes::scale_color_few(name="MIGWAS results")+
+          ggrepel::geom_text_repel(show.legend = FALSE) ->volcano_3
+    print(volcano_3)
+    filename.volcano3 <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_MIGWAS_ANNOT.png")
+    ggsave(filename = filename.volcano3, plot = volcano_3, 
+             width = 12, height = 8, 
+             units = "in"  # default
+             )
+  }
+   
+    volcano_1$labels$title <- ""
+    volcano_1$labels$subtitle <- ""
+    volcano_2$labels$title <- ""
+    volcano_2$labels$subtitle <- ""
+    volcano_3$labels$title <- ""
+    volcano_3$labels$subtitle <- ""
+    ggarrange(volcano_1, volcano_2, volcano_3, ncol = 1, nrow=3, labels = c("A", "B", "C")) -> volcanos.arranged
+    filename.volcanos.arranged <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_arranged.png")
+    ggsave(filename = filename.volcanos.arranged, plot = volcanos.arranged, 
+             width = 12, height = 18, 
+             units = "in"  # default
+             )
 }
 
 
