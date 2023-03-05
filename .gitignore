@@ -11,6 +11,7 @@ slurm*
 *error.out
 *slurm.out
 renv.lock
+scripts/pubmed_query.R
 
 # dirs
 data/

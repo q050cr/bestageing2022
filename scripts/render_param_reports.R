@@ -4,10 +4,11 @@ rm(list=ls())  # not in rmd doc, otherwise params deleted
 
 ## PARAMS -----------------------------------------------------------
 # should modeling be performed again?
-model.new <- FALSE
+model.new <- FALSE  # run ML models?
+diff.expression <- FALSE  # run diff expression analysis?
 
 ## REPORT and MAIL
-library(dplyr)
+library(dplyr, lib.loc = "/mnt/users/reich/programs/R/lib")
 gmailr::gm_auth_configure(path = "../library/credentials.json")
 gmailr::gm_auth(email=TRUE, cache = ".secret")
 
