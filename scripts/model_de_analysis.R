@@ -27,7 +27,7 @@ if ( !exists("all_combis")  ) {  # check if variable name exists in env
 # load data ---------------------------------------------------------------
 
 # MIRNA DAT
-model_data1 <- clean_names(readRDS(file = '../../BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
+model_data1 <- clean_names(readRDS(file = '/mnt/users/reich/BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
 
 load(file = "../../BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
 load(file = "../../BestAgeing/data/data.rda")  # "UKL-HD" n=731
@@ -124,7 +124,7 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
   pval.t.test<-rep(NA,ncol(all_mirnas)-1)
   pval.u.test<-rep(NA,ncol(all_mirnas)-1)
   pval.glm <- rep(NA,ncol(all_mirnas)-1)
-  average.difference <- rep(NA,ncol(all_mirnas)-1)
+  #average.difference <- rep(NA,ncol(all_mirnas)-1)
   log2FoldChange <- rep(NA,ncol(all_mirnas)-1)
   # indexing
   cont.index <- data01$disease == "control"
@@ -138,8 +138,8 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
     # average difference and logfold
     mean.control <- mean(cont)
     mean.case <- mean(case)
-    average.difference[miRNA] <- mean.case - mean.control
-    log2FoldChange[miRNA] <- (mean.case - mean.control)/mean.control
+    log2FoldChange[miRNA] <- mean.case - mean.control
+    ##log2FoldChange[miRNA] <- (mean.case - mean.control)/mean.control   # we are already on the log2 scale (https://support.bioconductor.org/p/117881/)
     # pvals
     pval.t.test[miRNA]<-t.test(cont,case)$p.value 
     pval.u.test[miRNA] <- wilcox.test(as.numeric(cont), as.numeric(case), exact = FALSE)$p.value
@@ -152,7 +152,7 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
   # we conducted 2549 t-tests and 2549 glm-models for each gene
   
   de.results <- tibble(miRNA = colnames(all_mirnas)[-1],  # all miRNAs without patID
-                       average.difference = average.difference,
+                       # average.difference = average.difference,
                        log2FoldChange = log2FoldChange,
                        pval.t.test = pval.t.test,
                        pval.u.test = pval.u.test,
