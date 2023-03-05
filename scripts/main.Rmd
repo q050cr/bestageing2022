@@ -33,37 +33,39 @@ knitr::opts_chunk$set(fig.path = figurespath)
 
 # rm(list=ls())
 
-library(readxl)
-library(janitor)
-library(dplyr)
-library(tidyr)
-library(stringr)
-library(purrr)
-library(ggplot2)
-library(ggrepel)
-library(ggthemes)
-library(kableExtra)
-library(skimr)
-library(tableone)
-library(pROC)
-library(tidymodels)
+library(readxl, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(janitor, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(dplyr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(tidyr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(forcats, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(stringr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(purrr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggplot2, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggrepel, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggthemes, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(kableExtra, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(skimr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(tableone, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(pROC, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(tidymodels, lib.loc = "/mnt/users/reich/programs/R/lib")
 options(tidymodels.dark = TRUE)
-library(vetiver)
-library(workflowsets)
-library(baguette)
-library(rules)
-library(finetune)
-library(DALEXtra)
+library(discrim, lib.loc = "/mnt/users/reich/programs/R/lib")  # NaiveBayes
+library(vetiver, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(workflowsets, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(baguette, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(rules, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(finetune, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(DALEXtra, lib.loc = "/mnt/users/reich/programs/R/lib")
 tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 caching <- FALSE
 
 cores <- parallel::detectCores()
 if (!grepl("mingw32", R.Version()$platform)) {
-   library(doMC)
+   library(doMC, lib.loc = "/mnt/users/reich/programs/R/lib")
    registerDoMC(cores = cores/2)
 } else {
-   library(doParallel)
+   library(doParallel, lib.loc = "/mnt/users/reich/programs/R/lib")
    cl <- makePSOCKcluster(cores/2)
    registerDoParallel(cl)
 }
@@ -133,6 +135,10 @@ clean_all_meta <- clean_all_meta %>%
 ## load all original metadat xlsx files again to make sure that also overlapped patients (e.g. dcm+cad) are in each group
 control_ids <- read_excel("../../BestAgeing/data/pheno_controls.xlsx") %>% 
   dplyr::pull(BestAgeingCode)
+
+## 2023-03-05
+# "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
+control_ids <- control_ids[control_ids != "UKL-HD-00318"]
 
 # create parameter specific {disease}_ids
 filename <- paste0("../../BestAgeing/data/pheno_", params$disease, ".xlsx")
@@ -314,7 +320,6 @@ rand_forest_ranger_spec <-
   set_engine('ranger') %>%
   set_mode('classification')
 
-library(discrim)
 naive_Bayes_naivebayes_spec <-
   naive_Bayes(smoothness = tune(), Laplace = tune()) %>%
   set_engine('naivebayes') %>% 
@@ -997,8 +1002,6 @@ saveRDS(vip2, file = filename.vip2.rds)
 
 ```{r explain-global-func}
 # custom TMwR plot function p 292
-library(forcats)
-
 ggplot_imp <- function(...) {
   obj <- list(...)
   metric_name <- attr(obj[[1]], "loss_name")
@@ -1043,6 +1046,82 @@ ggplot_imp <- function(...) {
 ```{r plot-feature-importance-show, fig.height=17, fig.width=8}
 ggplot_imp(vip1, vip2)
 ```
+
+
+\clearpage
+
+# Differential miRNA Expression Analysis
+
+```{r}
+disease_vector <- c("ACS", "CAD", "DCM", "HFREF")
+
+# load MIGWAS results data
+
+
+
+for(disease in disease_vector) {
+  de.results <- readRDS(dplyr::last(list.files(path = "../output/de_results", pattern = paste0("_de_results_DISEASE_", disease), full.names = TRUE)))
+  
+  de.results$padj <- p.adjust(de.results$pval.t.test, method = "BH", n = length(de.results$pval.t.test))
+  
+  de.results$diffexpressed <- "NO"
+  # if log2Foldchange > 1.0 and pvalue < 0.05, set as "UP" 
+  de.results$diffexpressed[de.results$log2FoldChange > 1.0 & 
+                             de.results$padj < 0.05] <- "UP"
+  # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+  de.results$diffexpressed[de.results$log2FoldChange < -1.0 & 
+                             de.results$padj < 0.05] <- "DOWN"
+  
+  log2folds_thresholds <- c(0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1)
+  for (i in log2folds_thresholds) {
+    if ( sum(de.results$diffexpressed != "NO"  ) < 15 ) {
+    de.results$diffexpressed[de.results$log2FoldChange > i & 
+                               de.results$padj < 0.05] <- "UP"
+    # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+    de.results$diffexpressed[de.results$log2FoldChange < - i & 
+                               de.results$padj < 0.05] <- "DOWN"
+    log2folds_thresh <- i
+    } else{ 
+      log2folds_thresh <- 1
+      break
+      }
+  }
+  
+  ## label miRNAs ######----------------------------------------
+  de.results$delabel <- NA
+  de.results$delabel[de.results$diffexpressed != "NO"] <- 
+    de.results$miRNA[de.results$diffexpressed != "NO"]
+  # ONLY label miRNAs that are also known from LITERATURE (maybe also from MIGWAS later)
+  de.results$delabel <- ifelse(de.results$delabel %in% researchMiRNAAccession$miRNAName_v21,  de.results$delabel, NA)
+  
+  # custom volcano
+  subtitle.custom <- paste0("log2foldchange = \u00b1 ", log2folds_thresh, " for significant miRNAs (p_adj < 0.05)")
+  
+  ggplot(data=de.results, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed, label=delabel)) + 
+        geom_point(alpha=0.4, size=1) + 
+        geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
+        geom_hline(yintercept=-log10(0.05), alpha=0.3) + 
+        labs(title = paste0("Volcano plot of DE miRNAs in ", disease),
+              subtitle = subtitle.custom) +
+        xlab("log2 fold change") + 
+        ylab("-log10 adjusted p-value") + 
+        theme(legend.position = "none", 
+              plot.title = element_text(size = rel(1.5), hjust = 0.5), 
+              axis.title = element_text(size = rel(1.25)))+
+        ggthemes::theme_few() +
+        ggthemes::scale_color_few()+
+        ggrepel::geom_text_repel(show.legend = FALSE) ->volcano_1
+  print(volcano_1)
+  filename.volcano <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease, ".png")
+  ggsave(filename = filename.volcano, plot = volcano_1, 
+           width = 12, height = 8, 
+           units = "in"  # default
+           )
+}
+
+
+```
+
 
 
 
