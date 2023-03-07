@@ -91,7 +91,7 @@ The rise of CV research in miRNAs began in 2005. I conducted an extensive pubmed
 
 ```{r load-mirna-data, include=FALSE, warning=FALSE}
 ## MIRNA DAT
-model_data1 <- clean_names(readRDS(file = '../../../BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
+model_data1 <- clean_names(readRDS(file = '/mnt/users/reich/BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
 
 
 load(file = "/mnt/users/reich/BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
@@ -150,7 +150,7 @@ disease_vector <- paste0(params$disease, "_ids")
 assign(x = disease_vector, 
        value = read_excel(filename) %>% 
   dplyr::pull(BestAgeingCode))
-
+## CAVE eval(as.symbol(X)) needed after asigning
 
 disease_ident_df <- tibble(pat_id = c(eval(as.symbol(disease_vector)),control_ids), 
        disease = c(rep(params$disease, length(eval(as.symbol(disease_vector)))),
@@ -1275,7 +1275,6 @@ for(disease in 1:length(disease_vector)) {
 
 
 ```
-
 
 
 
