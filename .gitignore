@@ -17,6 +17,7 @@ scripts/pubmed_query.R
 data/
 figures/
 output/
+presentation/
 renv/
 reports/
 scripts/figures-ba/
