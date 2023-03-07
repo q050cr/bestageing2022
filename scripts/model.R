@@ -3,6 +3,8 @@
 # this script is sourced from `scripts/render_param_reports.R`
 # selection provided by `all_combis$diseases` and `all_combis$analysis`
 
+# scripts saves tuned models (not finalized) to: "./output/tuning_results/"
+
 # dependencies ---------------------------------------------------------------
 library(readxl, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(janitor, lib.loc = "/mnt/users/reich/programs/R/lib")
@@ -546,7 +548,7 @@ for (i in 1:nrow(all_combis)) {
   time2 <- Sys.time()
   time.diff.race <- time2-time1
   
-  ## SAVE
+  ## SAVE RACE RESULTS -----------------------------------------
   filename_tune_race_results <- paste0("output/tuning_results/", Sys.Date(), "_tune_race_results_",
                                        text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
                                        ".rds")
@@ -668,3 +670,8 @@ for (i in 1:nrow(all_combis)) {
                ", and selection of miRNAs: ", stringr::str_to_upper(all_combis$analysis[i]),
                " -----------------------|||") )
 } # END LOOP
+
+
+## --> finalized workflows in `main.Rmd`
+# last fit saved to: "./output/test_set_results/"
+
