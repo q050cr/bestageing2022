@@ -34,6 +34,33 @@ caching <- FALSE
 
 ![AG Meder](../../img/meder_presentation_heart.png)
 
+```{r dependencies}
+library(readxl, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(janitor, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(dplyr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(tidyr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(forcats, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(stringr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(purrr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggplot2, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggrepel, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggthemes, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(kableExtra, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(skimr, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(tableone, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(survival, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(survminer, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(gginnards, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggsci, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(lubridate, lib.loc = "/mnt/users/reich/programs/R/lib")
+source("helper/ggsurvplot_custom.R")
+
+tidymodels_prefer()
+conflicted::conflict_prefer("expand", "tidyr")
+caching <- FALSE
+```
+
+
 # Discussion
 
 - Issues open for discussion
@@ -47,10 +74,244 @@ The new report version includes:
 # Introduction
 
 ```{r}
-readRDS(file = "../output/")
+load(file = "/mnt/users/reich/BestAgeing/data/data.rda")
+load(file = "/mnt/users/reich/BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
+load(file = "/mnt/users/reich/BestAgeing/data/data.rda")  # "UKL-HD" n=731
+# further cleaning
+all_mirnas <- clean_names(mirnas)
+names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
+mirnas_disease <- clean_names(data)
+names(mirnas_disease) <- str_replace(string = names(mirnas_disease), pattern = "mi_r", replacement = "mir")
+
+model_data1 <- clean_names(readRDS(file = '/mnt/users/reich/BestAgeing/data_new/model_data1.RDS'))  # # has also multiclass col + diagnoses
+
+###
+# METADATA --------------------------------------------------------------------
+## DIAGNOSES DAT
+load(file = "/mnt/users/reich/BestAgeing/data/diagnoses_df.rda")
+
+## SURVIVAL DAT
+survival_dat <- clean_names(readRDS(file = '../data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
+  # original path "../../XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
+
+## metadata from DB
+# https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
+load(file = "/mnt/users/reich/BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+clean_all_meta <- clean_all_meta %>% 
+  mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
+# cath data? "hkdb"
+
+## load all original metadat xlsx files again to make sure that also overlapped patients (e.g. dcm+cad) are in each group
+control_ids <- read_excel("/mnt/users/reich/BestAgeing/data/pheno_controls.xlsx") %>% 
+  dplyr::pull(BestAgeingCode)
+
+## 2023-03-05
+# "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
+control_ids <- control_ids[control_ids != "UKL-HD-00318"]
+
+# RM DAT
+rm(mirnas)
 ```
 
 
+## Prepare data for survival analysis
+
+```{r}
+survival_dat1 <- survival_dat %>% 
+  drop_na(pat_id, status) %>% 
+  left_join(clean_all_meta, by=c("pat_id"="patID"))
+
+no.ukhd.pats <- length(grep(pattern = "UKL-HD", x = data$patID, ignore.case = TRUE))
+fu.rate <- round(100/no.ukhd.pats * nrow(survival_dat1), 2)
+
+(disease.no <- table(survival_dat1$disease))
+```
+
+Out of `r no.ukhd.pats` patients that were enrolled at the University Hospital Heidelberg we gathered Follow-Up data (ac-mortality) in `r nrow(survival_dat1)` (missing Follow-Up Rate = `r fu.rate`%). Among these patients `r disease.no["acs"]` patients suffered from ACS, `r disease.no["cad"]` patients had CAD, `r disease.no["dcm"]` patients had DCM, and `r disease.no["control"]` participants were assigned to the control group. 
+
+We filter patients with HFpEF (n=5) and HFrEF (n=3).
+
+```{r filter-patients}
+survival_dat1 <- survival_dat1 %>% 
+  filter(disease != "pef" & disease != "ref") %>% 
+  mutate(time = time/365)
+
+table(survival_dat1$disease)
+```
+
+
+# Descriptive KM stratified by disease
+
+First, lets inspect survival times of the different diseases: 
+
+```{r}
+# easy KM
+sfit_diseases <- survfit(Surv(time, status) ~ disease, data = survival_dat1)
+ggsurvplot(fit = sfit_diseases, data = survival_dat1 )
+
+# custom plot
+p1.disease <- ggsurvplot_custom(fit_object = sfit_diseases, legend.title = "", myXbreaks = c(2.5, 5, 7.5),
+                                 legend.labs = c("ACS", "CAD", "CONTROL", "DCM"), plot_inlay = FALSE,
+                                save = FALSE, plotname = "p1_disease")
+p1.disease
+
+
+
+# 5y-mortality
+survival_dat1 <- survival_dat1 %>%
+  # 5y mortality
+  mutate(status5y = ifelse(time>5, 0, status),
+         time5y = ifelse(time>5, 5, time))
+
+sfit_diseases.5y <- survfit(Surv(time5y, status5y) ~ disease, data = survival_dat1)
+ggsurvplot(fit = sfit_diseases.5y, data = survival_dat1 )
+```
+
+# ML models survival probs
+
+## Load ML models
+
+```{r}
+# load models and predict probability of disease
+filenames2last.fit <- list.files("../output/test_set_results/test_results_20221127/")   # 9 models per disease
+# rm "old" directory
+index <- filenames2last.fit=="old"
+filenames2last.fit <- filenames2last.fit[!index]
+
+#space
+name2assignModelInEnv <- list()
+for (last.fit in 1:length(filenames2last.fit)) {
+  selected.last.fit <- filenames2last.fit[last.fit]
+  full.path <- paste0("../output/test_set_results/test_results_20221127/",selected.last.fit)
+  name2assignInEnv <- gsub(pattern = "\\d+_TEST", replacement = "TEST", filenames2last.fit[last.fit])
+  name2assignInEnv <- gsub(pattern = "\\.rds$", replacement = "", name2assignInEnv)  # backslash 2 escape the dot character (special character)
+  name2assignModelInEnv[[last.fit]] <- name2assignInEnv
+  assign(x = name2assignModelInEnv[[last.fit]], value = readRDS(full.path))
+}
+
+## NEED eval(as.symbol(X))
+# eval(as.symbol(name2assignModelInEnv[[2]]))
+```
+
+
+We now predict all models we have per disease and add the probabilities to our survival data. 
+
+```{r predict-whole-disease-dataset-and-filter-ukhd}
+# only have surv data from 3 diseases
+model.disease.vector <- c("acs", "cad", "dcm")
+for (model.disease in 1:length(model.disease.vector)) {
+  ## DATA 2 PREDICT FIRST
+  # create parameter specific {disease}_ids
+  filename <- paste0("/mnt/users/reich/BestAgeing/data/pheno_", model.disease.vector[model.disease], ".xlsx")
+  disease_vector <- paste0(model.disease.vector[model.disease], "_ids")
+  assign(x = disease_vector, 
+         value = read_excel(filename) %>% 
+           dplyr::pull(BestAgeingCode))
+  
+  
+  disease_ident_df <- tibble(pat_id = c(eval(as.symbol(disease_vector)),control_ids), 
+                             disease = c(rep(model.disease.vector[model.disease], length(eval(as.symbol(disease_vector)))),
+                                         rep("control", length(control_ids)))
+  )
+
+  # prepare-combine-data
+  data01 <- all_mirnas %>% 
+    # filter control patients and from {disease}_ids
+    filter(pat_id %in% !!sym(disease_vector) |
+             pat_id %in% control_ids
+    ) %>% 
+    # bind age and gender from metadata
+    left_join(clean_all_meta %>% select(patID, age, sex), 
+              by = c("pat_id"= "patID") ) %>% 
+    left_join(disease_ident_df, by = "pat_id") %>% 
+    relocate(c(disease, age, sex), .after = pat_id) %>% 
+    mutate(disease = factor(disease),
+           sex = factor(sex) ) %>% 
+    as_tibble()
+  
+  # select disease specific models
+  index <- grep(pattern = model.disease.vector[model.disease], x = name2assignModelInEnv)
+  
+  for(mymodel in 1:length(index)) {
+    modelInLoop <- name2assignModelInEnv[index][[mymodel]]
+    colname.prefix <- gsub(pattern = "TEST_RESULTS_", replacement = "", modelInLoop)
+    # 
+    extract.workflow.loop <- extract_workflow(eval(as.symbol(modelInLoop)))
+    predictions <- predict(test.extract.workflow, new_data=data01, type = "prob")
+    # 
+    colname_pred_control <- paste0(colnames(predictions)[1], "_", colname.prefix)
+    colname_pred_disease <- paste0(colnames(predictions)[2], "_", colname.prefix)
+    
+    data01[1] %>% 
+      cbind(predictions) -> temp.dat
+    
+    survival_dat1 %>% 
+      left_join(temp.dat, by = join_by(pat_id)) %>% 
+      rename(!! colname_pred_control := !! colnames(predictions)[1],
+             !! colname_pred_disease := !! colnames(predictions)[2]) -> survival_dat1
+    
+    #mtcars %>% 
+    #rename("PREFIX_{ OLD_COL_NAME }" := !! OLD_COL_NAME)
+  }
+}
+```
+
+
+## Use predictions and plot KM
+
+
+```{r}
+
+#cave : somewhere in deployment the .pred_control and corresponding disease column was called .pred_acs instead of .pred_{disease}
+
+model.names <- c("RF" ,"XGB", "KNN", "SVM_radial","SVM_poly", "SVM_linear","neural_network", "full_quad_logistic_reg", "full_quad_KNN")
+model.names.unique <- c("_RF_DISEASE" ,"_XGB_DISEASE", "KNN", "SVM_radial","SVM_poly", "SVM_linear","neural_network", "full_quad_logistic_reg", "full_quad_KNN")
+
+# for LITERATURE miRNAs ONLY (other models not run yet)
+for (mydisease in 1:length(model.disease.vector)) {
+  colnames.control.predict <- paste0(".pred_control_", model.names, "_DISEASE_", model.disease.vector[mydisease], "_ANALYSIS_selected")
+  colnames.disease.predict <- paste0(".pred_acs_", model.names, "_DISEASE_", model.disease.vector[mydisease], "_ANALYSIS_selected")  # cave here some bug .pred_acs instead of .pred_{disease}
+  
+  ## df only looking at patients with disease (no control) and with miRNA data!
+  survival_dat1.disease <- survival_dat1 %>% 
+    filter(disease == !! model.disease.vector[mydisease]) %>% 
+    filter(!is.na(!! sym(colnames.control.predict[1])))
+    
+  
+  # now loop over all models
+  for (my9models in seq_along(model.names)) {
+    colnames.control.predict.model <- colnames.control.predict[grep(model.names[my9models], x = colnames.control.predict,ignore.case = FALSE)]
+    colnames.disease.predict.model <- colnames.disease.predict[grep(model.names[my9models], x = colnames.disease.predict,ignore.case = FALSE)]
+    
+    # KNN has 2 specs: "KNN" and "full_quad_KNN"
+    if( length(colnames.control.predict.model) > 1 & model.names[my9models] == "KNN" ) {
+      colnames.control.predict.model <- colnames.control.predict.model[1]
+      colnames.disease.predict.model <- colnames.disease.predict.model[1]
+    } else if ( length(colnames.control.predict.model) > 1 & model.names[my9models] == "full_quad_KNN" ) {
+       colnames.control.predict.model <- colnames.control.predict.model[2]
+       colnames.disease.predict.model <- colnames.disease.predict.model[2]
+    }
+    
+    survival_dat1.disease <- survival_dat1.disease %>% 
+      mutate(model.pred.groups = cut_number(!! sym(colnames.disease.predict.model), n=3)) %>% 
+      mutate(model.pred.groups = factor(model.pred.groups, labels = c("low", "intermediate", "high")))
+    
+    
+    # easy KM
+    sfit_diseases <- survfit(Surv(time5y, status5y) ~ model.pred.groups, data = survival_dat1.disease)
+    #test <- ggsurvplot(fit = sfit_diseases, data = survival_dat1.disease )
+    surv.plotname <- str_remove(string = colnames.disease.predict.model, pattern = paste0(".pred_acs_"))  # AGAIN DISEASE BUG HERE, always acs
+    surv.plotname <- paste0(toupper(model.disease.vector[mydisease]), "_", surv.plotname)
+    surv.plottitle <- paste0(toupper(model.disease.vector[mydisease]), " probability predicted by ", model.names[my9models], " model")
+    ggsurvplot_custom(fit_object = sfit_diseases, mytitle=surv.plottitle, legend.title = "Predicted disease probability: ", 
+                      myXbreaks = c(1, 2,3,4, 5),
+                      legend.labs = c("low", "intermediate", "high"), plot_inlay = FALSE,
+                      save = TRUE, plotname = surv.plotname)
+    
+    
+  }
+}
+```
 
 
 
