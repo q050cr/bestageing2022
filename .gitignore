@@ -20,6 +20,7 @@ output/
 presentation/
 renv/
 reports/
+references/
 scripts/figures-ba/
 scripts/test/
 .secret
