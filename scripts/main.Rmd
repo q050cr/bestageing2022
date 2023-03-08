@@ -41,6 +41,7 @@ library(forcats, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(stringr, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(purrr, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(ggplot2, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ggpubr, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(ggrepel, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(ggthemes, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(kableExtra, lib.loc = "/mnt/users/reich/programs/R/lib")
@@ -1257,6 +1258,8 @@ for(disease in 1:length(disease_vector)) {
              width = 12, height = 8, 
              units = "in"  # default
              )
+  } else{
+    volcano_3 <- NULL
   }
    
     volcano_1$labels$title <- ""
@@ -1266,8 +1269,15 @@ for(disease in 1:length(disease_vector)) {
     volcano_3$labels$title <- ""
     volcano_3$labels$subtitle <- ""
     ggarrange(volcano_1, volcano_2, volcano_3, ncol = 1, nrow=3, labels = c("A", "B", "C")) -> volcanos.arranged
-    filename.volcanos.arranged <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_arranged.png")
-    ggsave(filename = filename.volcanos.arranged, plot = volcanos.arranged, 
+    ggarrange(volcano_1, volcano_2, volcano_3, ncol = 3, nrow=1, labels = c("A", "B", "C"))
+    
+    filename.volcanos.arranged.png <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_arranged.png")
+    filename.volcanos.arranged.svg <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_arranged.svg")
+    ggsave(filename = filename.volcanos.arranged.png, plot = volcanos.arranged, 
+             width = 12, height = 18, 
+             units = "in"  # default
+             )
+    ggsave(filename = filename.volcanos.arranged.svg, plot = volcanos.arranged, 
              width = 12, height = 18, 
              units = "in"  # default
              )
