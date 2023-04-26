@@ -153,7 +153,10 @@ for (disease in seq_along(diseases)) {
     plot_annotation(tag_levels = "A")
   
   if (saveFILE == TRUE) {
-    ## arranged plots are toooo small 
+    saveRDS(object = df_comparison,  # all miRNAs in df 
+            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-df_comparison.rds"))
+    write.csv2(x = df_comparison %>% select(-Type),  # is a list column...
+               file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-df_comparison.csv"))
     filename.fig1 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}-figure1-compare")
     ggsave(filename = paste0(filename.fig1, ".svg"), plot =  combined, 
            width = 8, height = 8, 
@@ -179,7 +182,7 @@ for (disease in seq_along(diseases)) {
                                           title = glue::glue("Most frequently mentioned miRNAs in {diseases[disease]}"))
   
   if (saveFILE == TRUE) {
-    ## arranged plots are toooo small 
+    
     filename.fig2 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}-figure2-mostfrequent")
     ggsave(filename = paste0(filename.fig2, ".svg"), plot =  most_frequently_miRNA, 
            width = 8, height = 8, 
@@ -198,12 +201,17 @@ for (disease in seq_along(diseases)) {
                                                  biomarker_keywords[-c(5,6,9,10)],  # no urine, body fluid
                                                  threshold = 5,
                                                  discard = TRUE)
+  
   # Plot top 7 miRNA biomarker in DCM
   biomarker_plot <- plot_mir_count(disease_biomarker, 
                                    top = 8,
                                    title = glue::glue("Potential biomarker miRNAs in {diseases[disease]}"))
   if (saveFILE == TRUE) {
-    ## arranged plots are toooo small 
+    
+    saveRDS(object = disease_biomarker, 
+            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-disease_biomarker.rds"))
+    write.csv2(x = disease_biomarker, file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-disease_biomarker.csv"))
+    
     filename.fig7 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}-figure7-mostfrequent")
     ggsave(filename = paste0(filename.fig7, ".svg"), plot =  biomarker_plot, 
            width = 8, height = 8, 
