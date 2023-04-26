@@ -213,6 +213,7 @@ for (disease in seq_along(diseases)) {
 }
 
 
+
 # not included in loop ----------------------------------------------------
 
 # Figure 3: Top terms {disease} -------------------------------------------
