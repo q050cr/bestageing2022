@@ -12,9 +12,11 @@ slurm*
 *slurm.out
 renv.lock
 scripts/pubmed_query.R
+scripts/miRetrieve.R
 
 # dirs
 data/
+data-literature/
 figures/
 output/
 presentation/
