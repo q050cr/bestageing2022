@@ -55,7 +55,9 @@ library(ggsci, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(lubridate, lib.loc = "/mnt/users/reich/programs/R/lib")
 source("helper/ggsurvplot_custom.R")
 
-tidymodels_prefer()
+library(lubridate, lib.loc = "/mnt/users/reich/programs/R/lib")  # datetimes
+library(factoextra, lib.loc = "/mnt/users/reich/programs/R/lib")  # plotting of kmeans
+
 conflicted::conflict_prefer("expand", "tidyr")
 caching <- FALSE
 ```
@@ -152,7 +154,7 @@ ggsurvplot(fit = sfit_diseases, data = survival_dat1 )
 # custom plot
 p1.disease <- ggsurvplot_custom(fit_object = sfit_diseases, legend.title = "", myXbreaks = c(2.5, 5, 7.5),
                                  legend.labs = c("ACS", "CAD", "CONTROL", "DCM"), plot_inlay = FALSE,
-                                save = FALSE, plotname = "p1_disease")
+                                save = FALSE, plotname = "p1_ALL_disease")
 p1.disease
 
 
@@ -237,7 +239,7 @@ for (model.disease in 1:length(model.disease.vector)) {
     colname.prefix <- gsub(pattern = "TEST_RESULTS_", replacement = "", modelInLoop)
     # 
     extract.workflow.loop <- extract_workflow(eval(as.symbol(modelInLoop)))
-    predictions <- predict(test.extract.workflow, new_data=data01, type = "prob")
+    predictions <- predict(extract.workflow.loop, new_data=data01, type = "prob")
     # 
     colname_pred_control <- paste0(colnames(predictions)[1], "_", colname.prefix)
     colname_pred_disease <- paste0(colnames(predictions)[2], "_", colname.prefix)
@@ -263,6 +265,7 @@ for (model.disease in 1:length(model.disease.vector)) {
 ```{r}
 
 #cave : somewhere in deployment the .pred_control and corresponding disease column was called .pred_acs instead of .pred_{disease}
+## fixed that bug on 2023-03-08 (bug in this script because of some test vector)
 
 model.names <- c("RF" ,"XGB", "KNN", "SVM_radial","SVM_poly", "SVM_linear","neural_network", "full_quad_logistic_reg", "full_quad_KNN")
 model.names.unique <- c("_RF_DISEASE" ,"_XGB_DISEASE", "KNN", "SVM_radial","SVM_poly", "SVM_linear","neural_network", "full_quad_logistic_reg", "full_quad_KNN")
@@ -270,7 +273,7 @@ model.names.unique <- c("_RF_DISEASE" ,"_XGB_DISEASE", "KNN", "SVM_radial","SVM_
 # for LITERATURE miRNAs ONLY (other models not run yet)
 for (mydisease in 1:length(model.disease.vector)) {
   colnames.control.predict <- paste0(".pred_control_", model.names, "_DISEASE_", model.disease.vector[mydisease], "_ANALYSIS_selected")
-  colnames.disease.predict <- paste0(".pred_acs_", model.names, "_DISEASE_", model.disease.vector[mydisease], "_ANALYSIS_selected")  # cave here some bug .pred_acs instead of .pred_{disease}
+  colnames.disease.predict <- paste0(".pred_", model.disease.vector[mydisease], "_", model.names, "_DISEASE_", model.disease.vector[mydisease], "_ANALYSIS_selected")  
   
   ## df only looking at patients with disease (no control) and with miRNA data!
   survival_dat1.disease <- survival_dat1 %>% 
@@ -300,7 +303,7 @@ for (mydisease in 1:length(model.disease.vector)) {
     # easy KM
     sfit_diseases <- survfit(Surv(time5y, status5y) ~ model.pred.groups, data = survival_dat1.disease)
     #test <- ggsurvplot(fit = sfit_diseases, data = survival_dat1.disease )
-    surv.plotname <- str_remove(string = colnames.disease.predict.model, pattern = paste0(".pred_acs_"))  # AGAIN DISEASE BUG HERE, always acs
+    surv.plotname <- str_remove(string = colnames.disease.predict.model, pattern = paste0(".pred_", model.disease.vector[mydisease], "_"))  
     surv.plotname <- paste0(toupper(model.disease.vector[mydisease]), "_", surv.plotname)
     surv.plottitle <- paste0(toupper(model.disease.vector[mydisease]), " probability predicted by ", model.names[my9models], " model")
     ggsurvplot_custom(fit_object = sfit_diseases, mytitle=surv.plottitle, legend.title = "Predicted disease probability: ", 
@@ -313,8 +316,196 @@ for (mydisease in 1:length(model.disease.vector)) {
 }
 ```
 
+# CAD Clusters and Predictions
+
+```{r}
+joined_hc_mirna <- readRDS("/mnt/users/reich//BestAgeing/data_new/joined_hc_mirna.rds") 
+
+colnames.disease.predict_cad <- paste0(".pred_cad_", model.names, "_DISEASE_cad_ANALYSIS_selected")  
+
+survival_dat1.cad <- survival_dat1 %>% 
+    filter(disease == "cad") %>% # | disease == "control") %>% 
+    filter(!is.na(!! sym(colnames.disease.predict_cad[1])))  # only look at patients that have full predictions
+
+joined_hc_mirna1 <- survival_dat1.cad %>% 
+  left_join(joined_hc_mirna[c(3,14:28 )], by = c("pat_id"="best_ageing_code") ) %>% 
+  # drop NA (no cath data (n=47))
+  drop_na(rca_1)
+```
+
+
+We need to filter for CAD patients and maybe later also include Controls:
+
+```{r k-means-clustering}
+# kmeans.hcm<- kmeans(scale(df.first.hc[, 12:26]), centers=3, iter.max = 10, nstart = 1,
+#        algorithm = c("Hartigan-Wong", "Lloyd", "Forgy",
+#                      "MacQueen"), trace=FALSE)
+set.seed(123)
+x<- scale(joined_hc_mirna1[ ,105:119])
+
+fviz_nbclust(x, kmeans, method = "wss") +
+  geom_vline(xintercept = 6, linetype = 2)
+```
+
+```{r k-means-clustering-for-all-6-clusterings, figures-side, fig.show='hold', out.width="33%"}
+set.seed(123)
+for(i in 2:6) {  # create 2 to 6 clusters
+  title_plot <- paste("k = ", i)
+  kmeans.ba <- kmeans(x, centers = i, iter.max = 1000, nstart = 25)
+  
+  ### name clusters
+  ordered.index <- order(table(kmeans.ba$cluster), decreasing=TRUE)
+  for (j in 2:max(kmeans.ba$cluster)) {
+    cluster.name <- paste("Cluster ", j, sep = "")
+    kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[1]] <- "Moderate CAD"
+    kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[j]] <- cluster.name
+  }
+  
+  # plot clusters
+  print(fviz_cluster(object = kmeans.ba, data = joined_hc_mirna1[ ,105:119],
+                     geom = "point", 
+                     #ellipse.type = "euclid",
+                     alpha =0.5,
+                     shape = 16,
+                     show.legend=FALSE) +
+          ggtitle(title_plot)+
+          ggthemes::theme_few()+
+          ggthemes::scale_color_few()+
+          theme(legend.title=element_blank())
+  )
+}
+
+set.seed(123)
+x<- scale(joined_hc_mirna1[ ,105:119])
+
+centers<- 6
+kmeans.ba.all <- list()
+for (i in 2:centers) { # create kmeans for 2:6 centers
+  kmeans.ba.all[[i]] <- kmeans(x, centers=i, iter.max = 1000, nstart = 25)
+}
+```
+
+## Choose clusters
+
+We choose both 4 centers and 5 centers for k-means clustering:
+  
+```{r k-means-clustering4c-5c, figures-side, fig.show='hold', out.width="50%"}
+set.seed(123)
+### A
+centers=4
+kmeans.ba4 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.ba4$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.ba4$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[1]] <- "Moderate CAD"
+  kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.ba4)
+
+aggregate(joined_hc_mirna1[ ,105:119], by=list(cluster=kmeans.ba4$cluster), mean)
+# plot
+fviz_cluster(object = kmeans.ba4, data = joined_hc_mirna1[ ,105:119],
+             geom = "point", 
+             #ellipse.type = "euclid",
+             alpha =0.5,
+             shape = 16,
+             show.legend=FALSE) +
+  ggtitle(title_plot)+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  theme(legend.title=element_blank())
+
+joined_hc_mirna1 <- joined_hc_mirna1 %>% 
+  mutate(kmeans4centers = kmeans.ba4$cluster)
+#mutate(date_of_hc = as.Date(date_of_hc))
+
+#-------------------#
+### B | 5 clusters ------------------------------
+
+centers=5
+kmeans.ba5 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.ba5$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.ba5$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[1]] <- "Moderate CAD"
+  kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.ba5)
+
+aggregate(joined_hc_mirna1[ ,105:119], by=list(cluster=kmeans.ba5$cluster), mean)
+# plot
+fviz_cluster(object = kmeans.ba5, data = joined_hc_mirna1[ ,105:119],
+             geom = "point", 
+             #ellipse.type = "euclid",
+             alpha =0.5,
+             shape = 16,
+             show.legend=FALSE) +
+  ggtitle("k=5")+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  theme(legend.title=element_blank())  -> k5plot.cad
+
+k5plot.cad
+
+ggsave(filename = "k5plotcad.svg", plot = k5plot.cad, width = 12, height = 8)
+
+joined_hc_mirna1 <- joined_hc_mirna1 %>% 
+  mutate(kmeans5centers = kmeans.ba5$cluster)
+```
+
+
+# Ad Modeling 
+
+```{r edit-data}
+joined_hc_mirna1 %>% 
+  select(pat_id, disease, age, weight, sex, kmeans4centers, kmeans5centers,
+         # miRNAS COULD BE INCLUDED HERE FOR MODELING LATER
+         #49:161
+         ## CAD predictions
+         69:86
+  ) %>% 
+  mutate(kmeans4to2 = ifelse(kmeans4centers == "Moderate CAD", 0,1),
+         kmeans5to2 = ifelse(kmeans5centers == "Moderate CAD", 0,1)) %>% 
+  drop_na() -> hc_predictions_dat
+```
+
+
+```{r}
+## Vector of variables to summarize
+myVars <- dput(colnames(hc_predictions_dat)[-(1:2)])
+index <- grep("^.pred_control", myVars)
+myVars <- myVars[-index]
+#drop vars
+dropping <- c("kmeans4centers", "kmeans5centers", "kmeans4to2")
+index <- myVars %in% dropping
+myVars <- myVars[!index]
+
+hc_predictions_dat <- hc_predictions_dat %>% 
+  mutate(kmeans5to2 = factor(kmeans5to2, labels = c("CAD Cluster", "Severe CAD Cluster")))
+
+## Vector of categorical variables that need transformation
+catVars <- c("sex")#, "kmeans5to2")
+## Create a TableOne object
+tab1 <- CreateTableOne(vars = myVars[myVars !="kmeans5to2"], strata = "kmeans5to2", data = hc_predictions_dat, factorVars = catVars)
+print(tab1, showAllLevels = TRUE, formatOptions = list(big.mark = ","))
+
+## export to csv
+tab1MAT <- print(tab1, showAllLevels = TRUE, formatOptions = list(big.mark = ","), quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+write.csv2(tab1MAT, file = "myTable-cad-hkdb.csv")
+
+kableone(tab1, caption="Predictions of CAD Probability Stratified by Clusters of Coronary Angiography") %>% 
+  kable_classic() -> kable.table.cad.hkdb
+kable.table.cad.hkdb
+saveRDS(kable.table.cad.hkdb, "kable.table.cad.hkdb.rds")
+## go to MAC Rstudio
 
 
 
-
+```
 
