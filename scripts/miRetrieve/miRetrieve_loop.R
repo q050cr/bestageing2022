@@ -9,6 +9,7 @@ library(miRetrieve); packageVersion('miRetrieve')
 library(magrittr) # Load magrittr for %>%
 library(ggplot2) # Load ggplot2 for plotting
 library(easyPubMed) # Load easyPubMed, access to PubMed
+library(rcrossref)
 library(dplyr) # Data wrangling
 library(tidyr) # Data wrangling
 library(patchwork) # Group graphs
@@ -18,22 +19,50 @@ library(pubmedR)
 
 saveFILE <- TRUE
 
-
+##
+# QUERIES ---------
+##
 diseases <- c("ACS", "CAD", "DCM", "HFrEF")
 
 query_list <- list()
-query_list[["ACS"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Mesh] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
+# initial query until 2022
+query_list[["ACS"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
 AND ("Acute Coronary Syndrome"[Mesh] OR "Acute Coronary Syndrome" OR "Myocardial Infarction"[Mesh])) 
 AND 2000:2022[DP]'
-query_list[["CAD"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Mesh] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
+
+# updated queries 2023 
+query_list[["ACS"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "micro RNA"[Title/Abstract]) 
+AND ("Acute Coronary Syndrome"[Mesh] OR "Acute Coronary Syndrome" OR "Myocardial Infarction"[Mesh]) 
+AND "Humans"[Mesh] AND 2000:2023[DP] 
+NOT ("Animals"[Mesh] NOT "Humans"[Mesh] OR "Cell Line"[Mesh] OR "Animal Experimentation"[Mesh] 
+OR "In Vitro Techniques"[Mesh] OR "Cell Culture Techniques"[Mesh] OR "animal model"[Title/Abstract] OR "laboratory study"[Title/Abstract] OR "cell line"[Title/Abstract]))'
+
+query_list[["CAD"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
 AND ("Coronary Artery Disease"[Mesh] OR "Coronary Artery Disease" )) 
-AND 2000:2022[DP]'
-query_list[["DCM"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Mesh] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
+AND "Humans"[Mesh] AND 2000:2023[DP] 
+NOT ("Animals"[Mesh] NOT "Humans"[Mesh] OR "Cell Line"[Mesh] OR "Animal Experimentation"[Mesh] 
+OR "In Vitro Techniques"[Mesh] OR "Cell Culture Techniques"[Mesh] OR "animal model"[Title/Abstract] OR "laboratory study"[Title/Abstract] OR "cell line"[Title/Abstract]))'
+
+query_list[["DCM"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
 AND ("Cardiomyopathy, Dilated"[Mesh] OR "Cardiomyopathy, Dilated" OR "dilated cardiomyopathy")) 
-AND 2000:2022[DP]'
-query_list[["HFrEF"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Mesh] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
+AND "Humans"[Mesh] AND 2000:2023[DP] 
+NOT ("Animals"[Mesh] NOT "Humans"[Mesh] OR "Cell Line"[Mesh] OR "Animal Experimentation"[Mesh] 
+OR "In Vitro Techniques"[Mesh] OR "Cell Culture Techniques"[Mesh] OR "animal model"[Title/Abstract] OR "laboratory study"[Title/Abstract] OR "cell line"[Title/Abstract]))'
+
+query_list[["HFrEF"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
 AND ("Heart Failure"[Mesh] OR "Heart Failure, Systolic"[Mesh] OR "Heart Failure, Systolic" OR "heart failure with reduced ejection fraction")) 
-AND 2000:2022[DP]'
+AND "Humans"[Mesh] AND 2000:2023[DP] 
+NOT ("Animals"[Mesh] NOT "Humans"[Mesh] OR "Cell Line"[Mesh] OR "Animal Experimentation"[Mesh] 
+OR "In Vitro Techniques"[Mesh] OR "Cell Culture Techniques"[Mesh] OR "animal model"[Title/Abstract] OR "laboratory study"[Title/Abstract] OR "cell line"[Title/Abstract]))'
+
+# adapted queries for only looking at clinical trials, meta-analysis and randomized controlled trials
+add_string <- 'AND ("Clinical Trial"[Publication Type] OR "Meta-Analysis"[Publication Type] OR "Randomized Controlled Trial"[Publication Type])'
+query_list_trials <- list()
+query_list_trials[["ACS"]] <- glue::glue({query_list[["ACS"]]},{add_string})
+query_list_trials[["CAD"]] <- glue::glue({query_list[["CAD"]]},{add_string})
+query_list_trials[["DCM"]] <- glue::glue({query_list[["DCM"]]},{add_string})
+query_list_trials[["HFrEF"]] <- glue::glue({query_list[["HFrEF"]]},{add_string})
+
 
 # fn to obtain PubMed IDs from query "{miRNA} + {disease}" 
 compare_count <- function(mir, mesh_query) {
@@ -52,7 +81,7 @@ count_plot_fn <- function(df_count) {
     ggplot(aes(x = miRNA, y = value, fill = name)) +
     geom_col(position = "dodge") +
     coord_flip() +
-    guides(fill = "none") +
+    guides(fill = guide_legend(reverse = TRUE, title = "Method")) +
     scale_fill_brewer(palette = "Dark2") +
     theme_classic() +
     ylab("# of articles") + 
@@ -60,12 +89,18 @@ count_plot_fn <- function(df_count) {
   return(count_plot)
 }
 
+##
+# QUERY LOOP -----------------------------------------------------------------
+##
 docl <- list()  # create a list object for storing results
 
+topn.mirna.plt <- 20 # how many mirnas should be plotted in barplot?
+
 for (disease in seq_along(diseases)) {
-  file <- glue::glue("./data-literature/pubmed-MicroRNA-{diseases[disease]}.txt")
+  subset <- "-human" # changed to "-human" only, could also be changed to "-humantrials" only, or "" for full pubmed search !!!
+  file <- glue::glue("./data-literature/pubmed-MicroRNA{subset}-{diseases[disease]}.txt")  
   
-  # load abstracts ----------------------------------------------------------
+  ## load abstracts ----------------------------------------------------------
   df <- read_pubmed(file, topic = diseases[disease]) %>% 
     # Subset for original articles
     subset_research() %>%
@@ -73,11 +108,14 @@ for (disease in seq_along(diseases)) {
     extract_mir_df(threshold = 2)
   
   # Number of abstracts
-  length(unique(df[["PMID"]]))
+  print(glue::glue("{length(unique(df[['PMID']]))} unique abstracts with extracted miRNA names mentioned at least twice/ abstract for disease: {diseases[disease]}"))
   # Number of rows
   nrow(df)
   
-  # Compare extraction count to PubMed --------------------------------------
+  # receive dois
+  # testid <- id_converter(x = df$PMID).  Get a PMID from a DOI, and vice versa.
+  
+  ## Compare extraction count to PubMed --------------------------------------
   # Extract all miRNAs
   df_comparison <- 
     read_pubmed(file,
@@ -99,7 +137,7 @@ for (disease in seq_along(diseases)) {
     df_comparison %>% 
     count_mir() %>% 
     dplyr::filter(stringr::str_detect(miRNA, "\\d[a-z]")) %>% 
-    filter(Mentioned_n >= 10) %>% 
+    filter(Mentioned_n >= 10) %>%                               # filter mentioned >= 10 !!
     pull(miRNA) %>% 
     stringr::str_extract_all("miR-\\d+|let-7") %>% 
     unlist()
@@ -119,7 +157,7 @@ for (disease in seq_along(diseases)) {
   count_pubmed_vec_letter <- purrr::map(df_count_letter$miRNA, ~compare_count(mir = .x, mesh_query = query_list[[diseases[disease]]])) %>% 
     purrr::set_names(df_count_letter$miRNA)
   
-  # Figure 1: Compare miRetrieve with PubMeds miRNA count -------------------
+  ## Figure 1: Compare miRetrieve with PubMeds miRNA count -------------------
   
   ## a) no letter
   # Obtain number of PubMed results
@@ -142,11 +180,16 @@ for (disease in seq_along(diseases)) {
   df_count_letter[3] <- length_pmid_letter
   names(df_count_letter)[3] <- "PubMed"
   names(df_count_letter)[2] <- "miRetrieve" 
+  
+  # combine with and without letter suffix
+  df_count_both <- rbind(df_count_letter, df_count_no_letter) %>%  
+    arrange(desc(PubMed))
+  
   # Plot # of miRNAs with miRetrieve vs. PubMed (no letters)
   count_plot1_letter <- count_plot_fn(df_count = df_count_letter)
   
   # Combine plots (Figure 1)
-  combined <- count_plot + count_letter_plot & theme(legend.position = "bottom")
+  combined <- count_plot1 + count_plot1_letter & theme(legend.position = "bottom")
   
   combined <- combined + 
     plot_layout(guides = "collect") + 
@@ -154,12 +197,17 @@ for (disease in seq_along(diseases)) {
   
   if (saveFILE == TRUE) {
     saveRDS(object = df_comparison,  # all miRNAs in df 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-df_comparison.rds"))
+            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_comparison.rds"))
     write.csv2(x = df_comparison %>% select(-Type),  # is a list column...
-               file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-df_comparison.csv"))
-    filename.fig1 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}-figure1-compare")
+               file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_comparison.csv"))
+    saveRDS(object = df_count_both,  # count top 30 mirnas with letter suffix and top 30 without 
+            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_count_both.rds"))
+    write.csv2(x = df_count_both,  # count top 30 mirnas with letter suffix and top 30 without 
+            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_count_both.csv"))
+    
+    filename.fig1 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure1-compare")
     ggsave(filename = paste0(filename.fig1, ".svg"), plot =  combined, 
-           width = 8, height = 8, 
+           width = 10, height = 6, 
            units = "in"  # default
     )
   }
@@ -176,21 +224,22 @@ for (disease in seq_along(diseases)) {
     mutate(Score = ifelse(is.infinite(Score), 0.01, Score)) %>%
     summarise(mean(Score), sd(Score), sum(miRetrieve), sum(PubMed))
   
-  # Figure 2: Top miRNAs in {Disease} ---------------------------------------
+  ## Figure 2: Top miRNAs in {Disease} ---------------------------------------
   
   most_frequently_miRNA <- plot_mir_count(df,
+                                          top = topn.mirna.plt,
                                           title = glue::glue("Most frequently mentioned miRNAs in {diseases[disease]}"))
   
   if (saveFILE == TRUE) {
     
-    filename.fig2 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}-figure2-mostfrequent")
+    filename.fig2 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure2-mostfrequent")
     ggsave(filename = paste0(filename.fig2, ".svg"), plot =  most_frequently_miRNA, 
            width = 8, height = 8, 
            units = "in"  # default
     )
   }
   
-  # Figure 7: Potential miRNA biomarker in diseases --------------------
+  ## Figure 7: Potential miRNA biomarker in diseases --------------------
   # pinpointed abstracts containing at least five marker 
   #   words for biomarker(bio-marker, biological marker, 
   #   biomarker, body fluid,bodyfluid, circulating, diagnostic, 
@@ -204,20 +253,21 @@ for (disease in seq_along(diseases)) {
   
   # Plot top 7 miRNA biomarker in DCM
   biomarker_plot <- plot_mir_count(disease_biomarker, 
-                                   top = 8,
+                                   top = topn.mirna.plt,
                                    title = glue::glue("Potential biomarker miRNAs in {diseases[disease]}"))
   if (saveFILE == TRUE) {
     
     saveRDS(object = disease_biomarker, 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-disease_biomarker.rds"))
+            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-disease_biomarker.rds"))
     write.csv2(x = disease_biomarker, file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-disease_biomarker.csv"))
     
-    filename.fig7 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}-figure7-mostfrequent")
+    filename.fig7 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure7-mostfrequent")
     ggsave(filename = paste0(filename.fig7, ".svg"), plot =  biomarker_plot, 
            width = 8, height = 8, 
            units = "in"  # default
     )
   }
+  print(glue::glue("|||-----------------------Run finished for disease: {diseases[disease]}-----------------------|||"))
 }
 
 
@@ -391,6 +441,4 @@ bm_dcm_plot <- plot_mir_count(dcm_biomarker,
 
 # Combine plot (Figure 7)
 (bm_acs_plot) + (bm_dcm_plot) + plot_annotation(tag_levels = 'A')
-
-
 
