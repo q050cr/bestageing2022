@@ -1,4 +1,5 @@
 
+
 ## 
 # file:///Users/christophreich/Downloads/lqab117_supplemental_files/Supplementary%20File%205%20Second%20Revision.html
 
@@ -30,27 +31,35 @@ query_list[["ACS"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "micr
 AND ("Acute Coronary Syndrome"[Mesh] OR "Acute Coronary Syndrome" OR "Myocardial Infarction"[Mesh])) 
 AND 2000:2022[DP]'
 
-# updated queries 2023 
+# updated queries 2023, added diagnosis and biomarker terms in June 2023
 query_list[["ACS"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "micro RNA"[Title/Abstract]) 
 AND ("Acute Coronary Syndrome"[Mesh] OR "Acute Coronary Syndrome" OR "Myocardial Infarction"[Mesh]) 
+AND ("Biomarkers"[Mesh] OR "Biomarkers"[Title/Abstract])
+AND ("Diagnosis"[Mesh] OR "Diagnostic"[Title/Abstract] OR "Diagnostic Techniques and Procedures"[Mesh] OR "Diagnosis"[Title/Abstract])
 AND "Humans"[Mesh] AND 2000:2023[DP] 
 NOT ("Animals"[Mesh] NOT "Humans"[Mesh] OR "Cell Line"[Mesh] OR "Animal Experimentation"[Mesh] 
 OR "In Vitro Techniques"[Mesh] OR "Cell Culture Techniques"[Mesh] OR "animal model"[Title/Abstract] OR "laboratory study"[Title/Abstract] OR "cell line"[Title/Abstract]))'
 
 query_list[["CAD"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
 AND ("Coronary Artery Disease"[Mesh] OR "Coronary Artery Disease" )) 
+AND ("Biomarkers"[Mesh] OR "Biomarkers"[Title/Abstract])
+AND ("Diagnosis"[Mesh] OR "Diagnostic"[Title/Abstract] OR "Diagnostic Techniques and Procedures"[Mesh] OR "Diagnosis"[Title/Abstract])
 AND "Humans"[Mesh] AND 2000:2023[DP] 
 NOT ("Animals"[Mesh] NOT "Humans"[Mesh] OR "Cell Line"[Mesh] OR "Animal Experimentation"[Mesh] 
 OR "In Vitro Techniques"[Mesh] OR "Cell Culture Techniques"[Mesh] OR "animal model"[Title/Abstract] OR "laboratory study"[Title/Abstract] OR "cell line"[Title/Abstract]))'
 
 query_list[["DCM"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
 AND ("Cardiomyopathy, Dilated"[Mesh] OR "Cardiomyopathy, Dilated" OR "dilated cardiomyopathy")) 
+AND ("Biomarkers"[Mesh] OR "Biomarkers"[Title/Abstract])
+AND ("Diagnosis"[Mesh] OR "Diagnostic"[Title/Abstract] OR "Diagnostic Techniques and Procedures"[Mesh] OR "Diagnosis"[Title/Abstract])
 AND "Humans"[Mesh] AND 2000:2023[DP] 
 NOT ("Animals"[Mesh] NOT "Humans"[Mesh] OR "Cell Line"[Mesh] OR "Animal Experimentation"[Mesh] 
 OR "In Vitro Techniques"[Mesh] OR "Cell Culture Techniques"[Mesh] OR "animal model"[Title/Abstract] OR "laboratory study"[Title/Abstract] OR "cell line"[Title/Abstract]))'
 
 query_list[["HFrEF"]] <- '(("MicroRNAs"[Mesh] OR "miRNAs"[Title/Abstract] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract]) 
-AND ("Heart Failure"[Mesh] OR "Heart Failure, Systolic"[Mesh] OR "Heart Failure, Systolic" OR "heart failure with reduced ejection fraction")) 
+AND ("Heart Failure"[Mesh] OR "Heart Failure, Systolic"[Mesh] OR "Heart Failure, Systolic" OR "heart failure with reduced ejection fraction"))
+AND ("Biomarkers"[Mesh] OR "Biomarkers"[Title/Abstract])
+AND ("Diagnosis"[Mesh] OR "Diagnostic"[Title/Abstract] OR "Diagnostic Techniques and Procedures"[Mesh] OR "Diagnosis"[Title/Abstract])
 AND "Humans"[Mesh] AND 2000:2023[DP] 
 NOT ("Animals"[Mesh] NOT "Humans"[Mesh] OR "Cell Line"[Mesh] OR "Animal Experimentation"[Mesh] 
 OR "In Vitro Techniques"[Mesh] OR "Cell Culture Techniques"[Mesh] OR "animal model"[Title/Abstract] OR "laboratory study"[Title/Abstract] OR "cell line"[Title/Abstract]))'
@@ -97,8 +106,8 @@ docl <- list()  # create a list object for storing results
 topn.mirna.plt <- 20 # how many mirnas should be plotted in barplot?
 
 for (disease in seq_along(diseases)) {
-  subset <- "-human" # changed to "-human" only, could also be changed to "-humantrials" only, or "" for full pubmed search !!!
-  file <- glue::glue("./data-literature/pubmed-MicroRNA{subset}-{diseases[disease]}.txt")  
+  subset <- "-human" # changed to "-human" only, could also be changed to "-humantrials" only, or "" for full pubmed search !!!, only works without date in next line!
+  file <- glue::glue("./data-literature/2023-06-14-pubmed-MicroRNA{subset}-{diseases[disease]}.txt")  
   
   ## load abstracts ----------------------------------------------------------
   df <- read_pubmed(file, topic = diseases[disease]) %>% 
@@ -122,6 +131,23 @@ for (disease in seq_along(diseases)) {
                 topic = diseases[disease]) %>% 
     extract_mir_df(threshold = 1,
                    extract_letters = TRUE)
+  no.unique.articles <- length(unique(df_comparison$PMID))
+  
+  df_comparison_manual_pubmed <- df_comparison %>% 
+    # Subset for original articles
+    subset_research() %>%
+    # filter for Journal Articles only (no "Comment"); implemented before the above function, should do the same...
+    filter(purrr::map_lgl(Type, ~ any(. == "Journal Article")) ) %>% 
+    mutate(unrelated_topic01=NA, direction_upreg_downreg=NA, english="yes", primary_literature01=NA,serum1_plasma2=NA, disease_not_defined01=NA, include01=NA) %>% 
+    arrange(PMID)
+  
+  df_comparison_manual_pubmed$Type <- df_comparison_manual_pubmed$Type %>% 
+    purrr::map_chr(., ~ paste(., collapse = ", "))
+  
+  if (saveFILE == TRUE) {
+    write.csv2(x = df_comparison_manual_pubmed, 
+               file = glue::glue("./data-literature/pubmed/{diseases[disease]}-{Sys.Date()}{subset}-pubmed_check-unique-articles{no.unique.articles}.csv"))
+  }
   
   # Count miRNAs Top 30
   df_count_letter <- 
@@ -259,7 +285,8 @@ for (disease in seq_along(diseases)) {
     
     saveRDS(object = disease_biomarker, 
             file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-disease_biomarker.rds"))
-    write.csv2(x = disease_biomarker, file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}-disease_biomarker.csv"))
+    write.csv2(x = disease_biomarker, 
+               file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-disease_biomarker.csv"))
     
     filename.fig7 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure7-mostfrequent")
     ggsave(filename = paste0(filename.fig7, ".svg"), plot =  biomarker_plot, 
