@@ -140,7 +140,8 @@ for (disease in seq_along(diseases)) {
     subset_research() %>%
     # filter for Journal Articles only (no "Comment"); implemented before the above function, should do the same...
     filter(purrr::map_lgl(Type, ~ any(. == "Journal Article")) ) %>% 
-    mutate(unrelated_topic01=NA, direction_upreg_downreg=NA, english="yes", primary_literature01=NA,serum1_plasma2=NA, disease_not_defined01=NA, include01=NA) %>% 
+    mutate(unrelated_topic01=NA, direction_upreg_downreg=NA, english="yes", primary_literature01=NA,
+           serum1_plasma2=NA, disease_not_defined01=NA, prognostic_value01=NA, include01=NA, comment=NA) %>% 
     arrange(PMID)
   
   df_comparison_manual_pubmed$Type <- df_comparison_manual_pubmed$Type %>% 
