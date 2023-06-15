@@ -107,7 +107,7 @@ topn.mirna.plt <- 20 # how many mirnas should be plotted in barplot?
 
 for (disease in seq_along(diseases)) {
   subset <- "-human" # changed to "-human" only, could also be changed to "-humantrials" only, or "" for full pubmed search !!!, only works without date in next line!
-  file <- glue::glue("./data-literature/2023-06-14-pubmed-MicroRNA{subset}-{diseases[disease]}.txt")  
+  file <- glue::glue("./data-literature/pubmed-downloads/2023-06-14-pubmed-MicroRNA{subset}-{diseases[disease]}.txt")  
   
   ## load abstracts ----------------------------------------------------------
   df <- read_pubmed(file, topic = diseases[disease]) %>% 
@@ -133,6 +133,8 @@ for (disease in seq_along(diseases)) {
                    extract_letters = TRUE)
   no.unique.articles <- length(unique(df_comparison$PMID))
   
+  
+  ## Pubmed Manual Inquiry ------------------------------------------------
   df_comparison_manual_pubmed <- df_comparison %>% 
     # Subset for original articles
     subset_research() %>%
