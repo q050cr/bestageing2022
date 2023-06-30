@@ -7,6 +7,7 @@
 .Ruserdata
 ._bestageing2022.Rproj
 ._*
+.idea/
 slurm*
 *error.out
 *slurm.out
@@ -24,6 +25,12 @@ renv/
 reports/
 references/
 scripts/figures-ba/
+scripts/miRetrieve/old/
 scripts/test/
+scripts/gpt/test-python/
+scripts/gpt/debug/
+scripts/gpt/helper/
+
 writing/
 .secret
+
