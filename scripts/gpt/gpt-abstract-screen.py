@@ -1,23 +1,34 @@
-
 import os
 import json
 import pickle
-import numpy as np
 import pandas as pd
-pd.set_option('display.max_columns', None)  # Display any number of columns
-pd.set_option('display.expand_frame_repr', False)  # Do not wrap to multiple pages
-
 import openai
 import time
 from datetime import datetime
+
+pd.set_option('display.max_columns', None)  # Display any number of columns
+pd.set_option('display.expand_frame_repr', False)  # Do not wrap to multiple pages
+
 # import requests
 # from tenacity import retry, wait_random_exponential, stop_after_attempt
 
 # set variables
 GPT_MODEL = "gpt-3.5-turbo-0613"
-openai.api_key = os.getenv('OPENAI_API_KEY')  # set openai api key, stored via Pycharm settings "Build, Execution, Deployment"
-cost_per_1000_input_tokens = 0.0015  # $0.0015 per 1000 input tokens, https://openai.com/pricing 2023-06-15 dollars
+# GPT_MODEL = "gpt-4-0613"
+openai.api_key = os.getenv('OPENAI_API_KEY')  # set api key, stored via Pycharm settings "Build, Execution, Deployment"
+
+model_lst = openai.Model.list()
+for i in model_lst['data']:
+    print(i['id'])
+
+# gpt 4 8K context	$0.03 / 1K tokens	$0.06 / 1K tokens   ## 20x as expensive as gpt3.5
+# gpt3.5 $0.0015 per 1000 input tokens, https://openai.com/pricing 2023-06-15 dollars;
+cost_per_1000_input_tokens = 0.0015
 cost_per_1000_output_tokens = 0.002
+
+
+# cost_per_1000_input_tokens = 0.03
+# cost_per_1000_output_tokens = 0.06
 
 # TODO:
 
@@ -155,7 +166,7 @@ diseases_df = pd.DataFrame({"abbrev_disease": diseases,
 current_date = datetime.now().strftime("%Y-%m-%d")
 
 for i, disease in enumerate(diseases_df.disease_name.tolist()[1:], start=1):
-    print(f"Processing abstracts for {disease} ({i+1}/{diseases_df.shape[0]})...")
+    print(f"Processing abstracts for {disease} ({i + 1}/{diseases_df.shape[0]})...")
     # ==========================
     df = pd.read_csv(concatenated_files[i], sep=";", low_memory=False)
     # initialize empty col names
@@ -163,7 +174,8 @@ for i, disease in enumerate(diseases_df.disease_name.tolist()[1:], start=1):
     # Using assign() method to add empty columns
     df = df.assign(**{col: pd.Series(dtype='float64') for col in new_columns})
     # Columns to change dtype to "object"
-    columns_to_change = ['related_topic', 'direction_upreg_downreg', 'primary_literature', 'serum_plasma_tissue', 'mortality', 'measurement_type']
+    columns_to_change = ['related_topic', 'direction_upreg_downreg', 'primary_literature', 'serum_plasma_tissue',
+                         'mortality', 'measurement_type']
     df[columns_to_change] = df[columns_to_change].astype('object')
     df = df.drop('unrelated_topic01', axis=1)
     # df['time'] = df['time'].astype(float)
@@ -173,11 +185,11 @@ for i, disease in enumerate(diseases_df.disease_name.tolist()[1:], start=1):
     # ==========================
     # loop over abstracts
     for index, row in df.iterrows():
-        print(f"GPT is processing abstract and miRNA {index+1}/{df.shape[0]}...")
+        print(f"GPT is processing abstract and miRNA {index + 1}/{df.shape[0]}...")
         # ==========================
         custom_gpt_function = my_gpt_api_function(abstract_disease=disease, mirna_oi=df["miRNA"][index])
         system_msg = 'You are a helpful assistant who understands data science and cardiovascular molecular biology.'
-        #break
+        # break
         # ==========================
         start_time = time.time()
         # run model
@@ -195,7 +207,7 @@ for i, disease in enumerate(diseases_df.disease_name.tolist()[1:], start=1):
         prompt_tokens = gpt_response.usage["prompt_tokens"]
         completion_tokens = gpt_response.usage["completion_tokens"]
         total_tokens = prompt_tokens + completion_tokens
-        query_cost = prompt_tokens/1000*cost_per_1000_input_tokens + completion_tokens/1000*cost_per_1000_output_tokens
+        query_cost = prompt_tokens / 1000 * cost_per_1000_input_tokens + completion_tokens / 1000 * cost_per_1000_output_tokens
         # ==========================
         # fill up dataframe
         # mirna data
@@ -226,4 +238,3 @@ for i, disease in enumerate(diseases_df.disease_name.tolist()[1:], start=1):
     df.to_excel(file_name_df_xlsx, index=False)
     print(f"Finished processing abstracts for {disease}...\nThank you for your patience.\n==========================\n")
     # ========================== END OF LOOP ========================== #
-
