@@ -7,6 +7,7 @@
 
 # dependencies ---------------------------------------------------------------
 library(readxl, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(glue, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(janitor, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(dplyr, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(tidyr, lib.loc = "/mnt/users/reich/programs/R/lib")
@@ -20,6 +21,17 @@ library(tableone, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(pROC, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(tidymodels, lib.loc = "/mnt/users/reich/programs/R/lib")
 options(tidymodels.dark = TRUE)
+## used within tidymodels
+# "kknn", "glmnet", "ranger", "naivebayes", "kernlab", "xgboost", "nnet"
+library(kknn, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(glmnet, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(ranger, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(naivebayes, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(kernlab, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(xgboost, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(keras, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(nnet, lib.loc = "/mnt/users/reich/programs/R/lib")
+##
 library(discrim, lib.loc = "/mnt/users/reich/programs/R/lib")  # naive bayes
 library(finetune, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(vetiver, lib.loc = "/mnt/users/reich/programs/R/lib")
@@ -28,6 +40,9 @@ library(baguette, lib.loc = "/mnt/users/reich/programs/R/lib")
 library(rules, lib.loc = "/mnt/users/reich/programs/R/lib")
 tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
+
+miRetrieveBiomarker <- TRUE  # if TRUE "selected" analysis will use top 50 biomarkers from miRetrieve research
+disease_names_path <- c("ACS", "CAD", "DCM", "HFrEF")
 
 cores <- parallel::detectCores()
 if (!grepl("mingw32", R.Version()$platform)) {
@@ -40,22 +55,22 @@ if (!grepl("mingw32", R.Version()$platform)) {
 }
 
 
-tune_grid_eval <- FALSE  # otherwise only racing methods will be used for hyperpar tuning
+tune_grid_eval <- FALSE    # if FALSE only racing methods will be used for hyperpar tuning
 if ( !exists("all_combis")  ) {  # check if variable name exists
   diseases <- c("dcm", "acs", "cad", "hfref")
   analysis <- c("selected", "full")
-  all_combis <- tidyr::crossing(diseases, analysis) #%>% 
-    #filter(analysis=="selected")
+  all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
+    filter(analysis=="selected")
 }
 
 ###
 # load data ---------------------------------------------------------------
 
 # MIRNA DAT
-model_data1 <- clean_names(readRDS(file = '../../BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
+model_data1 <- clean_names(readRDS(file = '/mnt/users/reich/BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
 
-load(file = "../../BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
-load(file = "../../BestAgeing/data/data.rda")  # "UKL-HD" n=731
+load(file = "/mnt/users/reich/BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
+load(file = "/mnt/users/reich/BestAgeing/data/data.rda")  # "UKL-HD" n=731
 all_mirnas <- clean_names(mirnas)
 names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
 mirnas_disease <- clean_names(data)
@@ -64,7 +79,7 @@ rm(data, mirnas)
 
 # load-mirnas-from_research
 # create vector of described mirnas
-load("../../BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
+load("/mnt/users/reich/BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
 # check if all mirnas are named the same
 researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
   str_replace(pattern = "mi_r", replacement = "mir")
@@ -77,22 +92,22 @@ researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hs
 ###
 # load-metadat --
 ## DIAGNOSES DAT
-load(file = "../../BestAgeing/data/diagnoses_df.rda")
+load(file = "/mnt/users/reich/BestAgeing/data/diagnoses_df.rda")
 
 ## SURVIVAL DAT
-survival_dat <- clean_names(readRDS(file = 'data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
+survival_dat <- clean_names(readRDS(file = '/mnt/users/reich/rockerprojects/bestageing2022/data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
 # original path "../../XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
 
 ## metadata from DB
 # https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
-load(file = "../../BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+load(file = "/mnt/users/reich/BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
 clean_all_meta <- clean_all_meta %>% 
   mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
 # cath data? "hkdb"
 
 ## load all original metadat xlsx files again to make sure that also overlapped 
 #patients (e.g. dcm+cad) are in each group
-control_ids <- read_excel("../../BestAgeing/data/pheno_controls.xlsx") %>% 
+control_ids <- read_excel("/mnt/users/reich/BestAgeing/data/pheno_controls.xlsx") %>% 
   dplyr::pull(BestAgeingCode)
 
 # "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
@@ -106,7 +121,7 @@ for (i in 1:nrow(all_combis)) {
   ## DATA FIRST
 
   # create parameter specific {disease}_ids
-  filename <- paste0("../../BestAgeing/data/pheno_", all_combis$diseases[i], ".xlsx")
+  filename <- paste0("/mnt/users/reich/BestAgeing/data/pheno_", all_combis$diseases[i], ".xlsx")
   disease_vector <- paste0(all_combis$diseases[i], "_ids")
   assign(x = disease_vector, 
          value = read_excel(filename) %>% 
@@ -133,12 +148,62 @@ for (i in 1:nrow(all_combis)) {
            sex = factor(sex) ) %>% 
     as_tibble()
   
+  # CHOOSE miRetrieve Biomarkers?
+  if (miRetrieveBiomarker==TRUE) {
+    path2biomarker <- glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{disease_names_path[i]}/2023-07-12-human-disease_biomarker_with_accession.rds")
+    path2biomarker_count <- glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{disease_names_path[i]}/2023-07-12-human-df_count_both_with_accession.rds")
+    human_disease_biomarker <- readRDS(file = path2biomarker)
+    human_disease_biomarker_count <- readRDS(file = path2biomarker_count)
+    
+    # 1) most hits on miRetrieve
+    human_disease_biomarker_count_tidy <- 
+      human_disease_biomarker_count %>%
+      drop_na(Accession) %>%
+      arrange(desc(miRetrieve)) %>%
+      dplyr::slice(1:30)
+    
+    # 2) highest BM score <-- used this
+    human_disease_biomarker <- human_disease_biomarker %>% 
+      drop_na(Accession) %>% 
+      arrange(desc(Biomarker_score)) %>% 
+      left_join(human_disease_biomarker_count %>% 
+                  select(Accession, miRetrieve, PubMed), 
+                by=c("Accession"="Accession")) %>% 
+      # drop_na(miRetrieve) %>%   # some PMIDs not in most hits ;)
+      mutate(miRetrieve = ifelse(is.na(miRetrieve), 0, miRetrieve) ) %>% 
+      ## !! GROUP BY distinct miRNAs!!
+      group_by(Accession) %>% 
+      mutate(max_value = (Biomarker_score + miRetrieve)) %>% 
+      arrange(desc(max_value)) %>% 
+      slice(1) %>% 
+      ungroup() %>% 
+      arrange(desc(max_value)) %>% 
+      drop_na(TargetName) %>% 
+      slice(1:50)  # top 50 
+    
+    human_disease_biomarker$TargetName <-  make_clean_names(human_disease_biomarker$TargetName) %>% 
+      str_replace(pattern = "mi_r", replacement = "mir")
+    # sanity check if miRNA names are in sequenced df
+    human_disease_biomarker <- human_disease_biomarker %>% 
+      filter(TargetName %in% names(data01))
+    
+    # save for documentation
+    saveRDS(object = human_disease_biomarker, 
+            file = glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{disease_names_path[i]}/{Sys.Date()}-human-disease_biomarker_with_accession_max_value.rds"))
+  }
+  
   selected_mirna_dat <- paste0("data01_", length(researchMiRNAAccession$miRNAName_v21), "mirnas")  
   assign(x = selected_mirna_dat, 
          value = data01 %>% 
            select(pat_id, disease, age, sex, researchMiRNAAccession$miRNAName_v21))
   
-  if (all_combis$analysis[i] == "selected") {
+  if (miRetrieveBiomarker==TRUE) {
+    selected_mirna_dat <- paste0("data01_", length(human_disease_biomarker$TargetName), "mirnas")  
+    assign(x = selected_mirna_dat, 
+           value = data01 %>% 
+             select(pat_id, disease, age, sex, human_disease_biomarker$TargetName))
+    no.mirnas <- length(human_disease_biomarker$TargetName)
+  } else if (all_combis$analysis[i] == "selected") {
     no.mirnas <- length(researchMiRNAAccession$miRNAName_v21)
     #text_intro <- paste0(no.mirnas, " miRNAs, that have been investigated in cardiac pathophysiology")
   } else{
@@ -147,6 +212,7 @@ for (i in 1:nrow(all_combis)) {
   }
   
   text_disease <- stringr::str_to_upper(all_combis$diseases[i])
+
   
   ###
   # MODEL -------------------------------------------------------------------
@@ -218,6 +284,10 @@ for (i in 1:nrow(all_combis)) {
     # DECORRELATE
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
     step_dummy(all_nominal_predictors(),-disease)
+  
+  # sanity check
+  #prepped_rec <- prep(normalized_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
+  #test_baked_train <- bake(prepped_rec, new_data = dat_test)
   
   ###
   # specs-parsnip ----------------------------------------------------------
@@ -333,7 +403,7 @@ for (i in 1:nrow(all_combis)) {
     grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
       extract_parameter_set_dials() %>% 
       # data dependent
-      update(mtry = mtry(range = c(1, ncol(dat_train))) ) %>% 
+      update(mtry = mtry(range = c(1, ncol(dat_train)-2)) ) %>%  # leave out ID and outcome 
       grid_latin_hypercube(size=100) 
   } else{
     # full analysis with all mirnas: limit `mtry()`
@@ -349,7 +419,7 @@ for (i in 1:nrow(all_combis)) {
     grid_XGB <- boost_tree_xgboost_spec %>%   # 2 hyperparams
       extract_parameter_set_dials() %>% 
       # data dependent
-      update(mtry = mtry(range = c(1, ncol(dat_train))) ) %>% 
+      update(mtry = mtry(range = c(1, ncol(dat_train)-2)) ) %>% 
       grid_latin_hypercube(size=150) 
   } else{
     # full analysis with all mirnas: limit `mtry()`
@@ -378,6 +448,7 @@ for (i in 1:nrow(all_combis)) {
   
   grid_neural_network <- mlp_nnet_spec %>%   # 3 hyperparams
     extract_parameter_set_dials() %>% 
+    update(epochs = epochs() %>% range_set(c(10, 150))) %>%   # epochs()  Range: [10, 1000] (default)
     grid_latin_hypercube(size=100)
   
   grid_full_quad_logistic_reg <- logistic_reg_glmnet_spec %>%  # 2 hyperparams
@@ -550,7 +621,7 @@ for (i in 1:nrow(all_combis)) {
   
   ## SAVE RACE RESULTS -----------------------------------------
   filename_tune_race_results <- paste0("output/tuning_results/", Sys.Date(), "_tune_race_results_",
-                                       text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
+                                       text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]), "_miRetrieve_", miRetrieveBiomarker,
                                        ".rds")
   saveRDS(object = race_results, file = filename_tune_race_results)
   
