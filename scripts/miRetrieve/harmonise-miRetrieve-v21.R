@@ -14,6 +14,8 @@ library(miRBaseConverter)
 library(janitor)
 saveFILE <- TRUE
 
+# file oi stored in "./data-literature/miRetrieve/ACS/2023-06-14-human-disease_biomarker.rds" for biomarker relevant miRNA and converted to target v21
+
 ##
 # Harmonize literature miRNAs to v21 (best version in bestageing mirna naming) -----------------------------
 ##
@@ -59,12 +61,12 @@ for (data in seq_along(path2files)) {
   if (saveFILE == TRUE) {
     # df_count_both_accession
     saveRDS(object = df_count_both_accession, 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_count_both_with_accession.rds"))
-    write.csv2(x = df_count_both_accession, file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_count_both_with_accession.csv"))
+            file = glue::glue("./data-literature/miRetrieve/{diseases[data]}/{Sys.Date()}{subset}-df_count_both_with_accession.rds"))
+    write.csv2(x = df_count_both_accession, file = glue::glue("./data-literature/miRetrieve/{diseases[data]}/{Sys.Date()}{subset}-df_count_both_with_accession.csv"))
     # disease_biomarker_with_accession
     saveRDS(object = disease_biomarker_accession, 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-disease_biomarker_with_accession.rds"))
-    write.csv2(x = disease_biomarker_accession, file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-disease_biomarker_with_accession.csv"))
+            file = glue::glue("./data-literature/miRetrieve/{diseases[data]}/{Sys.Date()}{subset}-disease_biomarker_with_accession.rds"))
+    write.csv2(x = disease_biomarker_accession, file = glue::glue("./data-literature/miRetrieve/{diseases[data]}/{Sys.Date()}{subset}-disease_biomarker_with_accession.csv"))
   }
   
   ## manually match to most frequent version -----------------------------------
@@ -79,6 +81,8 @@ for (data in seq_along(path2files)) {
   
   # miRBase Accessions to miRNA Names of the target version
   convert.manual = miRBaseConverter::miRNA_AccessionToName(result1[,2],targetVersion = "v21")
+  
+  print(glue("|||----------------------- Run finished for disease: ", {diseases[data]} , " -----------------------|||"))
 }
 
 
