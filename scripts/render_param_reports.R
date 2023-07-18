@@ -1,6 +1,7 @@
 
 
 rm(list=ls())  # not in rmd doc, otherwise params deleted
+.libPaths("/mnt/users/reich/programs/R/lib")
 
 ## PARAMS -----------------------------------------------------------
 # should modeling be performed again?
@@ -9,18 +10,20 @@ diff.expression <- FALSE  # run diff expression analysis?
 
 ## REPORT and MAIL
 library(dplyr, lib.loc = "/mnt/users/reich/programs/R/lib")
-gmailr::gm_auth_configure(path = "../library/credentials.json")
+gmailr::gm_auth_configure(path = "/mnt/users/reich/library/credentials.json")
 gmailr::gm_auth(email=TRUE, cache = ".secret")
 
-render_report = function(disease, analysis) {
+render_report = function(disease, analysis, miRetrieve) {
   ## disease: acs, cad, hfref, dcm | default: dcm
   ## analysis: selected, full | default: selected
+  ## miRetrieve: boolean TRUE | FALSE selected miRNAs from miRetrieve research?
   
   rmarkdown::render(
     "scripts/main.Rmd",
     params = list(
       disease = disease,
       analysis = analysis,
+      miRetrieve = miRetrieve,
       doc_title =  paste0("Diagnostic performance of miRNAs in ", stringr::str_to_upper(disease) )
     ),
     output_file = paste0(
@@ -52,7 +55,7 @@ if (model.new == TRUE ) {
 time11 <- Sys.time()
 # render for all diseases both selected and all miRNAs analysis
 for (reports in 1:nrow(all_combis)) {
-  render_report(disease = all_combis$diseases[reports], analysis = all_combis$analysis[reports])
+  render_report(disease = all_combis$diseases[reports], analysis = all_combis$analysis[reports], miRetrieve = TRUE)
   # send report
   email <-
     gmailr::gm_mime() %>%

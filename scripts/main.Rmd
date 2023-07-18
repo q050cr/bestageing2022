@@ -12,6 +12,7 @@ params:
   doc_title: "The Default Title"
   disease: "cad"   # possibilities: acs, cad, hfref, dcm
   analysis: "selected"  # possibilities: selected, full
+  miRetrieve: TRUE
 output: 
   html_document:
     theme: paper
@@ -26,48 +27,50 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-figurespath <- paste0("../reports/", 
+figurespath <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/reports/", 
                       format(Sys.time(), "%Y%m%d"), '_ba_diagnostic_DISEASE_', stringr::str_to_upper(params$disease), 
                       "_ANALYSIS_", stringr::str_to_upper(params$analysis), "_figures/")
 knitr::opts_chunk$set(fig.path = figurespath)
 
 # rm(list=ls())
 SAVE.files <- FALSE
+miRetrieveBiomarker <- TRUE
 
-library(readxl, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(janitor, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(dplyr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(tidyr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(forcats, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(stringr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(purrr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(ggplot2, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(ggpubr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(ggrepel, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(ggthemes, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(kableExtra, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(skimr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(tableone, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(pROC, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(tidymodels, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(readxl, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(glue, lib.loc = "/mnt/users/reich/programs/R43/lib" )
+library(janitor, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(tidyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(forcats, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(stringr, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(purrr, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(ggpubr, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(ggrepel, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(ggthemes, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(kableExtra, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(skimr, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(tableone, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(pROC, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(tidymodels, lib.loc = "/mnt/users/reich/programs/R43/lib")
 options(tidymodels.dark = TRUE)
-library(discrim, lib.loc = "/mnt/users/reich/programs/R/lib")  # NaiveBayes
-library(vetiver, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(workflowsets, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(baguette, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(rules, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(finetune, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(DALEXtra, lib.loc = "/mnt/users/reich/programs/R/lib")
+library(discrim, lib.loc = "/mnt/users/reich/programs/R43/lib")  # NaiveBayes
+library(vetiver, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(workflowsets, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(baguette, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(rules, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(finetune, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(DALEXtra, lib.loc = "/mnt/users/reich/programs/R43/lib")
 tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 caching <- FALSE
 
 cores <- parallel::detectCores()
 if (!grepl("mingw32", R.Version()$platform)) {
-   library(doMC, lib.loc = "/mnt/users/reich/programs/R/lib")
+   library(doMC, lib.loc = "/mnt/users/reich/programs/R43/lib")
    registerDoMC(cores = cores/2)
 } else {
-   library(doParallel, lib.loc = "/mnt/users/reich/programs/R/lib")
+   library(doParallel, lib.loc = "/mnt/users/reich/programs/R43/lib")
    cl <- makePSOCKcluster(cores/2)
    registerDoParallel(cl)
 }
@@ -119,16 +122,20 @@ researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession
 ## all_mirnas[,(str_detect(string = colnames(all_mirnas), pattern = "106"))]
 ## researchMiRNAAccession[which(!researchMiRNAAccession$miRNAName_v21 %in% colnames(all_mirnas)),]
 researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hsa_mir_106a_5p"] <- "hsa_mir_106b_5p"
+
+# load miRetrieve rds (created in model.R)
+path2file_miRetrieve <- glue('/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{params$disease}/2023-07-12-human-disease_biomarker_with_accession_max_value.rds')
+human_disease_biomarker <- readRDS(file = path2file_miRetrieve)
 ```
 
 
 ```{r load-metadat, include=FALSE, warning=FALSE}
 ## DIAGNOSES DAT
 load(file = "/mnt/users/reich/BestAgeing/data/diagnoses_df.rda")
-#load(file = "../../BestAgeing/data/diagnoses.rda")
+#load(file = "/mnt/users/reich/BestAgeing/data/diagnoses.rda")
 
 ## SURVIVAL DAT
-survival_dat <- clean_names(readRDS(file = '../data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
+survival_dat <- clean_names(readRDS(file = '/mnt/users/reich/rockerprojects/bestageing2022/data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
   # original path "../../XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
 
 ## metadata from DB
@@ -178,12 +185,19 @@ data01 <- all_mirnas %>%
 
 selected_mirna_dat <- paste0("data01_", length(researchMiRNAAccession$miRNAName_v21), "mirnas")  
 assign(x = selected_mirna_dat, 
-       value = data01 %>% 
-         select(pat_id, disease, age, sex, researchMiRNAAccession$miRNAName_v21))
+      value = data01 %>% 
+        select(pat_id, disease, age, sex, researchMiRNAAccession$miRNAName_v21))
 
 # eval(as.symbol(selected_mirna_dat))
 
-if (params$analysis == "selected") {
+if (params$miRetrieve==TRUE & params$analysis == "selected") {
+  selected_mirna_dat <- paste0("data01_", length(human_disease_biomarker$TargetName), "mirnas")  
+  assign(x = selected_mirna_dat, 
+         value = data01 %>% 
+           select(pat_id, disease, age, sex, human_disease_biomarker$TargetName))
+  no.mirnas <- length(human_disease_biomarker$TargetName)
+  text_intro <- paste0(no.mirnas, " miRNAs, that have been investigated in cardiac pathophysiology")
+} else if (params$miRetrieve==FALSE & params$analysis == "selected") {
   no.mirnas <- length(researchMiRNAAccession$miRNAName_v21)
   text_intro <- paste0(no.mirnas, " miRNAs, that have been investigated in cardiac pathophysiology")
 } else{
@@ -361,7 +375,8 @@ boost_tree_xgboost_spec <-  # https://parsnip.tidymodels.org/reference/details_b
 mlp_nnet_spec <-
   mlp(hidden_units = tune(), penalty = tune(), 
       epochs = tune()) %>%
-  set_engine('nnet') %>%
+  # x Fold4: preprocessor 1/1, model 21/100: Error in nnet.default(x, y, w, entropy = TRUE, ...): too many (18937) we...
+  set_engine('nnet', MaxNWts = 20000) %>%  #`keras`
   set_mode('classification')
 ```
 
@@ -417,37 +432,38 @@ all_workflows <-
 # need to finalize mtry - data dependent (unknown values - how many predictors?)
 ## data dependent: mtry(), sample_size(), num_terms(), num_comp()
 set.seed(123)
+set.seed(123)
 if (params$analysis == "selected") {
-  # only 114 mirnas in analysis
+  # only 114 mirnas in analysis or even less 50 if miRetrieve is TRUE
   grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
     extract_parameter_set_dials() %>% 
     # data dependent
-    update(mtry = mtry(range = c(1, ncol(dat_train))) ) %>% 
-    grid_latin_hypercube(size=50) 
-  } else{
-    # full analysis with all mirnas: limit `mtry()`
+    update(mtry = mtry(range = c(1, ncol(dat_train)-2)) ) %>%  # leave out ID and outcome 
+    grid_latin_hypercube(size=100) 
+} else{
+  # full analysis with all mirnas: limit `mtry()`
   grid_RF <- rand_forest_ranger_spec %>% 
-      extract_parameter_set_dials() %>% 
-      # data dependent
-      update(mtry = mtry(range = c(1, ncol(dat_train)/2)) ) %>%  # not using all features
-      grid_latin_hypercube(size=50) 
+    extract_parameter_set_dials() %>% 
+    # data dependent
+    update(mtry = mtry(range = c(1, ceiling(ncol(dat_train)/2))) ) %>%  # not using all features
+    grid_latin_hypercube(size=100) 
 }
 
 if (params$analysis == "selected") {
-  # only 114 mirnas in analysis
   grid_XGB <- boost_tree_xgboost_spec %>%   # 2 hyperparams
     extract_parameter_set_dials() %>% 
     # data dependent
-    update(mtry = mtry(range = c(1, ncol(dat_train))) ) %>% 
-    grid_latin_hypercube(size=50) 
-  } else{
-    # full analysis with all mirnas: limit `mtry()`
+    update(mtry = mtry(range = c(1, ncol(dat_train)-2)) ) %>% 
+    grid_latin_hypercube(size=150) 
+} else{
+  # full analysis with all mirnas: limit `mtry()`
   grid_XGB <- boost_tree_xgboost_spec %>% 
-      extract_parameter_set_dials() %>% 
-      # data dependent
-      update(mtry = mtry(range = c(1, ncol(dat_train)/2)) ) %>%  # not using all features
-      grid_latin_hypercube(size=50) 
+    extract_parameter_set_dials() %>% 
+    # data dependent
+    update(mtry = mtry(range = c(1, ceiling(ncol(dat_train)/2))) ) %>%  # not using all features
+    grid_latin_hypercube(size=150) 
 }
+
 
 grid_KNN <- nearest_neighbor_kknn_spec %>%  # 3 hyperparams
   extract_parameter_set_dials() %>%
@@ -488,89 +504,37 @@ all_workflows <- all_workflows %>%
 ```
 
 
-### Tuning the models with small grid
-
-```{r tune-grid-workflows}
-## outsourced to `scripts/model.R`
-
-# select DISEASE and ANALYSIS from path -> choose last one trained
-index_grid <- str_detect(string = list.files(path = "../output/tuning_results"), pattern = text_disease)  & 
-  str_detect(list.files(path = "../output/tuning_results"), pattern = str_to_upper(params$analysis)) & 
-  str_detect(list.files(path = "../output/tuning_results"), pattern = "tune_grid")
-
-if( any(index_grid) == TRUE ) {   # if no models tuned and saved index evaluates to FALSE!
-  grid_results <- readRDS(
-    dplyr::last(list.files(path = "../output/tuning_results", full.names = TRUE)[index_grid])
-    )
-
-  num_grid_models <- nrow(collect_metrics(grid_results, summarize = FALSE))
-}
-```
-
-What do our `grid_results` look like?
-
-```{r workflow-sets-grid-print}
-if( any(index_grid) == TRUE ) {
-  #grid_results
-  grid_results %>% 
-    rank_results() %>% 
-    filter(.metric == "roc_auc") %>% 
-    select(model, .config, roc_auc=mean, rank) -> rankings
-  
-  top2models_grid <- rankings$model[1:2]
-  for (j in 1:length(all_workflows$info)) {
-    if (all_workflows$info[[j]]$model == top2models_grid[1]) {
-      topmodel1_grid <- all_workflows$wflow_id[i]
-    }
-    
-    if (all_workflows$info[[j]]$model == top2models_grid[2]) {
-      topmodel2_grid <- all_workflows$wflow_id[j]
-    }
-  }
-  
-  autoplot(
-     grid_results,
-     rank_metric = "roc_auc",  # <- how to order models
-     metric = "roc_auc",       # <- which metric to visualize
-     select_best = TRUE     # <- one point per workflow
-  ) +
-    geom_text(aes(y = mean - 0.05, label = wflow_id), angle = 45, hjust = 1, size =3) +
-    lims(y = c(0.6, 1.0)) +
-    labs(title="Ranking models",
-         subtitle="Grid approach")+
-    ylab("ROC-AUC")+
-    ggthemes::theme_few()+
-    theme(legend.position = "none")
-  
-  # inspect hyperparameter results for specific model
-  autoplot(grid_results, id = topmodel1_grid, metric = "roc_auc")+
-    ylab("ROC-AUC")+
-    labs(title="Hyperparameter Performance",
-         subtitle = stringr::str_to_upper(topmodel1_grid))+
-    ggthemes::theme_few()
-  
-  autoplot(grid_results, id = topmodel2_grid, metric = "roc_auc")+
-    ylab("ROC-AUC")+
-    labs(title="Hyperparameter Performance - Grid Approach",
-         subtitle = stringr::str_to_upper(topmodel2_grid))+
-    ggthemes::theme_few()
-}
-```
-
-
 ### Efficiently screening models
 
 ```{r workflow-sets-race}
 ## outsourced to `scripts/model.R`
 
-# select DISEASE and ANALYSIS from path -> choose last one trained
-index_race <- str_detect(string = list.files(path = "../output/tuning_results"), pattern = text_disease)  & 
-  str_detect(list.files(path = "../output/tuning_results"), pattern = str_to_upper(params$analysis)) & 
-  str_detect(list.files(path = "../output/tuning_results"), pattern = "tune_race")
+# select DISEASE and ANALYSIS and miRetrieve from path -> choose last one trained
 
+path2tuning <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/tuning_results/{params$disease}")
+if(params$analysis == "selected" & params$miRetrieve == TRUE) {
+  index_race <- 
+    str_detect(list.files(path = path2tuning), pattern = text_disease)  & 
+    str_detect(list.files(path = path2tuning), pattern = str_to_upper(params$analysis)) & 
+    str_detect(list.files(path = path2tuning), pattern = "tune_race") &
+    str_detect(list.files(path = path2tuning), pattern = "_miRetrieve_TRUE") 
+} else if (params$analysis == "selected" & params$miRetrieve == FALSE){
+  index_race <- 
+    str_detect(list.files(path = path2tuning), pattern = text_disease)  & 
+    str_detect(list.files(path = path2tuning), pattern = str_to_upper(params$analysis)) & 
+    str_detect(list.files(path = path2tuning), pattern = "tune_race") &
+    str_detect(list.files(path = path2tuning), pattern = "_miRetrieve_FALSE") 
+} else if (params$analysis == "full"){
+  index_race <- 
+    str_detect(list.files(path = path2tuning), pattern = text_disease)  & 
+    str_detect(list.files(path = path2tuning), pattern = str_to_upper(params$analysis)) & 
+    str_detect(list.files(path = path2tuning), pattern = "tune_race")
+}
+
+# finally load tuning results
 if( any(index_race) == TRUE ) {   # if no models tuned and saved index evaluates to FALSE!
   race_results <- readRDS(
-    dplyr::last(list.files(path = "../output/tuning_results", full.names = TRUE)[index_race])
+    dplyr::last(list.files(path = path2tuning, full.names = TRUE)[index_race])
     )
   num_race_models <- nrow(collect_metrics(race_results, summarize = FALSE))
 }
@@ -606,73 +570,72 @@ autoplot(
   labs(title="Ranking models",
        subtitle="Racing approach")+
   ggthemes::theme_few()+
-  theme(legend.position = "none")
+  theme(legend.position = "none") -> plot_tune_race_ranking
+plot_tune_race_ranking
+
+if(SAVE.files==TRUE) {
+  filename_plot_tune_race_ranking <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/tune_race_ranking/", 
+                                            Sys.Date(), "_tune_race_ranking_", 
+                                            params$disease, "_analysis_", str_to_upper(params$analysis), "_miRetrieve_", params$miRetrieve,
+                                            ".svg")
+  ggsave(filename = filename_plot_tune_race_ranking, plot = plot_tune_race_ranking, 
+         width = 14, height = 10, 
+         units = "in"  # default
+  )
+}
+
 
 if( topmodel1_race != "KNN" &  topmodel1_race != "full_quad_KNN" ) {
-    #       Error in `geom_point()`:
-    #         ! Problem while computing aesthetics.
-    #       ℹ Error occurred in the 1st layer.
-    #       Caused by error in `FUN()`:
-    #         ! Objekt 'resamples' nicht gefunden
-    # inspect hyperparameter results for specific model
-    autoplot(race_results, id = topmodel1_race, metric = "roc_auc")+
-      ylab("ROC-AUC")+
-      labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
-                        str_to_upper(all_combis$analysis[i])),
-           subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel1_race))) +
-      ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel1
-    
-    filename_plot_tune_race_hyperpars_topmodel1 <- paste0("../output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
-                                                          text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
-                                                          ".png")
+  #       Error in `geom_point()`:
+  #         ! Problem while computing aesthetics.
+  #       ℹ Error occurred in the 1st layer.
+  #       Caused by error in `FUN()`:
+  #         ! Objekt 'resamples' nicht gefunden
+  # inspect hyperparameter results for specific model
+  autoplot(race_results, id = topmodel1_race, metric = "roc_auc")+
+    ylab("ROC-AUC")+
+    labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
+                      str_to_upper(all_combis$analysis[i])),
+         subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel1_race))) +
+    ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel1
+  print(plot_tune_race_hyperpars_topmodel1)
+  
+  if(SAVE.files==TRUE) {
+    filename_plot_tune_race_hyperpars_topmodel1 <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/tune_race_ranking/", 
+                                                          Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
+                                                          params$disease, "_analysis_", str_to_upper(params$analysis), 
+                                                          "_miRetrieve_", params$miRetrieve,
+                                                          ".svg")
     ggsave(filename = filename_plot_tune_race_hyperpars_topmodel1, plot = plot_tune_race_hyperpars_topmodel1, 
            width = 14, height = 10, 
            units = "in"  # default
     )
+  }
 }
   
 if( topmodel2_race != "KNN" &  topmodel2_race != "full_quad_KNN" ) {
-    autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
-      ylab("ROC-AUC")+
-      labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
-                        str_to_upper(all_combis$analysis[i])),
-           subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel2_race))) +
-      ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel2
-    
-    filename_plot_tune_race_hyperpars_topmodel2 <- paste0("../output/plots/", Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
-                                                          text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]),
-                                                          ".png")
+  autoplot(race_results, id = topmodel2_race, metric = "roc_auc")+
+    ylab("ROC-AUC")+
+    labs(title=paste0("Hyperparameter Performance | Racing Approach: ", text_disease, ", miRNA_set: ", 
+                      str_to_upper(all_combis$analysis[i])),
+         subtitle = paste0("MODEL: ", stringr::str_to_upper(topmodel2_race))) +
+    ggthemes::theme_few() -> plot_tune_race_hyperpars_topmodel2
+  print(plot_tune_race_hyperpars_topmodel2)
+  
+  if(SAVE.files==TRUE) {
+    filename_plot_tune_race_hyperpars_topmodel2 <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/tune_race_ranking/", 
+                                                          Sys.Date(), "_tune_race_hyperpars_topmodel1_", 
+                                                          params$disease, "_analysis_", str_to_upper(params$analysis),
+                                                          "_miRetrieve_", params$miRetrieve,
+                                                          ".svg")
     ggsave(filename = filename_plot_tune_race_hyperpars_topmodel2, plot = plot_tune_race_hyperpars_topmodel2, 
            width = 14, height = 10, 
            units = "in"  # default
     )
+  }
 }
 ```
 
-
-```{r workflow-sets-racing-concordance}
-if ( any(index_grid) == TRUE  ) {
-  matched_results <- 
-     rank_results(race_results, select_best = TRUE) %>% 
-     select(wflow_id, .metric, race = mean, config_race = .config) %>% 
-     inner_join(
-        rank_results(grid_results, select_best = TRUE) %>% 
-           select(wflow_id, .metric, complete = mean, 
-                  config_complete = .config, model),
-        by = c("wflow_id", ".metric"),
-     ) %>%  
-     filter(.metric == "roc_auc")
-  
-  matched_results %>% 
-    ggplot(aes(x = complete, y = race)) + 
-    geom_abline(lty = 3) + 
-    geom_point() + 
-    geom_text_repel(aes(label = model)) +
-    coord_obs_pred() + 
-    labs(x = "Complete Grid ROC-AUC", y = "Racing ROC-AUC") +
-    ggthemes::theme_few()
-}
-```
 
 ### Fit model to training data
 
@@ -742,8 +705,8 @@ test_results1 %>%
   roc_curve(disease, !!sym(pred_string), event_level="second") %>%
   ggplot(aes(1 - specificity, sensitivity)) +
   geom_line(linewidth = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
+  geom_path(show.legend = FALSE) + # black line in the middle
   geom_abline(lty = 2, color = ggthemes_data$few$colors$Dark[1,2][[1]], size = 1.2, alpha=0.5) +
-  geom_path(show.legend = FALSE) +
   coord_equal() +
   labs(title = paste0("ROC Curve (Predict ", text_disease, ")"),
        subtitle = paste0(topmodel1_race, " - Test set") ) +
@@ -753,13 +716,17 @@ test_results1 %>%
   ggthemes::scale_color_few() -> plot_ROC_topmodel1
 plot_ROC_topmodel1
 
-filename_plot_ROC_topmodel1 <- paste0("../output/plots/", Sys.Date(), "_ROC_topmodel1_", 
-                                          text_disease, "_analysis_", str_to_upper(params$analysis),
-                                          ".png")
-ggsave(filename = filename_plot_ROC_topmodel1, plot = plot_ROC_topmodel1, 
-       width = 12, height = 12, 
-       units = "in"  # default
-)
+if(SAVE.files==TRUE) {
+  filename_plot_ROC_topmodel1 <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/roc_topmodel/",
+                                        Sys.Date(), "_ROC_topmodel1_", 
+                                        text_disease, "_analysis_", str_to_upper(params$analysis),
+                                        ".png")
+  ggsave(filename = filename_plot_ROC_topmodel1, plot = plot_ROC_topmodel1, 
+         width = 12, height = 12, 
+         units = "in"  # default
+         
+  )
+}
 ```
 
 
@@ -800,6 +767,8 @@ predictions_loop <- list()
 caret_conf_mat <- list()
 coefficients_loop <- list()
 
+cluster_root <- '/mnt/users/reich/rockerprojects/bestageing2022/'
+
 for (models in seq_along(1:nrow(race_results)) ) {
   ## retrieve ID
   wflow_id <- race_results[[1]][models]
@@ -815,29 +784,31 @@ for (models in seq_along(1:nrow(race_results)) ) {
      finalize_workflow(best_results[[models]]) %>% 
      last_fit(split = dat_split)
   
-  ## 1) STORE TEST_SET_RESULTS -----------
-  testresults_save <- paste0(format(params$date, "%Y%m%d"),  "_TEST_RESULTS_", wflow_id, "_", "DISEASE_",
-                      params$disease,"_ANALYSIS_", params$analysis)
-  filename.testresults <- paste0("../output/test_set_results/", testresults_save, ".rds")
-  saveRDS(test_results[[models]], file = filename.testresults)
-  
-  ## 2) STORE MODEL ### ------------------
-  last_fit_metrics <- collect_metrics(test_results[[models]])
-  # extract model
-  last_fit_model <- extract_workflow(test_results[[models]])
-
-  ## VETIVER MODEL DEPLOYMENT
-  modelname <- paste0(format(params$date, "%Y%m%d"),  "_MODEL_", wflow_id, "_", "DISEASE_",
-                      params$disease,"_ANALYSIS_", params$analysis)
-  filename.model.vetiver <- paste0("../output/models/vetiver/", modelname, ".rds")
-  filename.model.tidymodels <- paste0("../output/models/tidymodels/", modelname, ".rds")
-  v <- vetiver_model(
-    model = last_fit_model, 
-    model_name = modelname, 
-    metadata = list(metrics = last_fit_metrics %>% select(-.config))
-  )
-  saveRDS(v, file = filename.model.vetiver)
-  saveRDS(last_fit_model, file = filename.model.tidymodels)
+  if(SAVE.files == TRUE) {
+    ## 1) STORE TEST_SET_RESULTS -----------
+    testresults_save <- paste0(format(params$date, "%Y%m%d"),  "_TEST_RESULTS_", wflow_id, "_", "DISEASE_",
+                               params$disease,"_ANALYSIS_", params$analysis, "_miRetrieve_", params$miRetrieve)
+    filename.testresults <- glue("{cluster_root}output/test_set_results/{params$disease}/{testresults_save}.rds")
+    saveRDS(test_results[[models]], file = filename.testresults)
+    
+    ## 2) STORE MODEL ### ------------------
+    last_fit_metrics <- collect_metrics(test_results[[models]])
+    # extract model
+    last_fit_model <- extract_workflow(test_results[[models]])
+    
+    ## VETIVER MODEL DEPLOYMENT
+    modelname <- paste0(format(params$date, "%Y%m%d"),  "_MODEL_", wflow_id, "_", "DISEASE_",
+                        params$disease,"_ANALYSIS_", params$analysis, "_miRetrieve_", params$miRetrieve)
+    filename.model.vetiver <- glue("{cluster_root}output/models/vetiver/{params$disease}/{modelname}.rds")
+    filename.model.tidymodels <- glue("{cluster_root}output/models/tidymodels/{params$disease}/{modelname}.rds")
+    v <- vetiver_model(
+      model = last_fit_model, 
+      model_name = modelname, 
+      metadata = list(metrics = last_fit_metrics %>% select(-.config))
+    )
+    saveRDS(v, file = filename.model.vetiver)
+    saveRDS(last_fit_model, file = filename.model.tidymodels)
+  }
   ###
   
   aucs <- append(aucs, collect_metrics(test_results[[models]])[[3]][2])
@@ -896,14 +867,14 @@ for (models in seq_along(1:nrow(race_results)) ) {
     theme(plot.subtitle = element_text(size = 7, color = "black"))
   print(roc_plot_test)
   
-  filename_plot_ROC_wflow_id <- paste0("../output/plots/", Sys.Date(), "_ROC_", wflow_id, "_",  
-                                          text_disease, "_analysis_", str_to_upper(params$analysis),
-                                          ".png")
-  ggsave(filename = filename_plot_ROC_wflow_id, plot = roc_plot_test, 
-         width = 12, height = 12, 
-         units = "in"  # default
-  )
-  
+  if(SAVE.files == TRUE) {
+    filename_plot_ROC_wflow_id <- 
+      glue("{cluster_root}output/plots/roc_curves/{params$disease}/{Sys.Date()}_ROC_{wflow_id}_{text_disease}_analysis_{str_to_upper(params$analysis)}.svg")
+    ggsave(filename = filename_plot_ROC_wflow_id, plot = roc_plot_test, 
+           width = 12, height = 12, 
+           units = "in"  # default
+    )
+  }
   
   ## factor order usually alphabetically! (acs < control)
   predictions_loop[[models]] <- predictions_loop[[models]] %>% 
@@ -912,8 +883,8 @@ for (models in seq_along(1:nrow(race_results)) ) {
            )   
 
   gbm::calibrate.plot(y = predictions_loop[[models]]$disease, p = predictions_loop[[models]][[pred_string]], 
-                    main=paste(wflow_id, "-Calibration Plot", sep=""), 
-                    line.par = list(col = "black"), shade.col="grey", xlim=c(0,0.6))
+                                          main=paste(wflow_id, "-Calibration Plot | ", sep=""), 
+                                          line.par = list(col = "black"), shade.col="grey", xlim=c(0,0.6))
 }
 ```
 
@@ -939,9 +910,9 @@ performance.summary.table <- tibble(
 kableExtra::kable(performance.summary.table, digits = 3, caption = "Summary statistics of ML-models",) %>% 
   kable_styling(font_size=12)
 
-filename.df.xlsx <- paste0("../output/performance_summary_df/", format(params$date, "%Y%m%d"), "_",
+filename.df.xlsx <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/performance_summary_df/", format(params$date, "%Y%m%d"), "_",
                       params$disease,"_ANALYSIS_", params$analysis, "_performance_summary_table.xlsx")
-filename.df.rds <- paste0("../output/performance_summary_df/", format(params$date, "%Y%m%d"), "_",
+filename.df.rds <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/performance_summary_df/", format(params$date, "%Y%m%d"), "_",
                       params$disease,"_ANALYSIS_", params$analysis, "_performance_summary_table.rds")
 
 openxlsx::write.xlsx(performance.summary.table, file = filename.df.xlsx, overwrite = TRUE)
@@ -997,9 +968,9 @@ vip2 <-
             loss_function = loss_default("classification")    #  # loss_default(explainer_xgb$model_info$type) 
             )
 
-filename.vip1.rds <- paste0("../output/dalextra/", format(params$date, "%Y%m%d"), "_",
+filename.vip1.rds <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/dalextra/", format(params$date, "%Y%m%d"), "_",
                       params$disease,"_ANALYSIS_", params$analysis, "_vip1.rds")
-filename.vip2.rds <- paste0("../output/dalextra/", format(params$date, "%Y%m%d"), "_",
+filename.vip2.rds <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/dalextra/", format(params$date, "%Y%m%d"), "_",
                       params$disease,"_ANALYSIS_", params$analysis, "_vip2.rds")
 
 saveRDS(vip1, file = filename.vip1.rds)
@@ -1061,7 +1032,7 @@ ggplot_imp(vip1, vip2)
 ```{r MIGWAS}
 
 ## load Accession MIMAT of all miRNAs to synchronize miRNA names
-mirnas2549_v21_MIMAT <- readRDS("../data/Rdata/mirnas2549_v21_MIMAT.rds") %>% as_tibble() %>% 
+mirnas2549_v21_MIMAT <- readRDS("/mnt/users/reich/rockerprojects/bestageing2022/data/Rdata/mirnas2549_v21_MIMAT.rds") %>% as_tibble() %>% 
   mutate(TargetName = make_clean_names(TargetName)) %>% 
   mutate(TargetName = str_replace(TargetName, pattern = "mi_r", replacement = "mir"))
 
@@ -1070,56 +1041,56 @@ mirnas2549_v21_MIMAT <- readRDS("../data/Rdata/mirnas2549_v21_MIMAT.rds") %>% as
 
 # load MIGWAS results data
 # 1 CAD
-CAD_pheno_migwas_candidates <- read.table(file = "../../MIGWAS/CAD_pheno_migwas_candidates.txt", header = FALSE) %>%   ## some miRNAs have multiple gene targets!!!!! not unique
+CAD_pheno_migwas_candidates <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/CAD_pheno_migwas_candidates.txt", header = FALSE) %>%   ## some miRNAs have multiple gene targets!!!!! not unique
   as_tibble() %>% 
   rename(percentile_score=V1,   # The percentile of scores indicating gene-miRNA target prediction certainty.
          target_gene=V2, miRNA=V3, MIMAT_ID=V4) %>% 
   left_join(mirnas2549_v21_MIMAT[2:3], by = c("MIMAT_ID"= "Accession"))
 # length(unique(CAD_pheno_migwas_candidates$TargetName))   52 miRNAS unique
-CAD_pheno_migwas_migwas_result <- read.table(file = "../../MIGWAS/CAD_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
+CAD_pheno_migwas_migwas_result <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/CAD_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(tissue = V1, P_value = V2, Fold_change = V3) %>% 
   arrange(P_value)
-CAD_pheno.gene.pval <- read.table(file = "../../MIGWAS/gene_P/CAD_pheno.gene.pval.txt", header = FALSE) %>% 
+CAD_pheno.gene.pval <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/gene_P/CAD_pheno.gene.pval.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(gene=V1, P_value=V2)
-CAD_pheno.mir.pval <- read.table(file = "../../MIGWAS/miRNA_P/CAD_pheno.mir.pval.txt", header = FALSE) %>% 
+CAD_pheno.mir.pval <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/miRNA_P/CAD_pheno.mir.pval.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(miRNA=V1, P_value=V2) 
 
 # 2 DCM
-DCM_pheno_migwas_candidates <- read.table(file = "../../MIGWAS/DCM_pheno_migwas_candidates.txt", header = FALSE) %>% 
+DCM_pheno_migwas_candidates <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/DCM_pheno_migwas_candidates.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(percentile_score=V1,   # The percentile of scores indicating gene-miRNA target prediction certainty.
          target_gene=V2, miRNA=V3, MIMAT_ID=V4) %>% 
   left_join(mirnas2549_v21_MIMAT[2:3], by = c("MIMAT_ID"= "Accession"))
 #length(unique(DCM_pheno_migwas_candidates$TargetName))   # 11 miRNAS unique
-DCM_pheno_migwas_migwas_result <- read.table(file = "../../MIGWAS/DCM_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
+DCM_pheno_migwas_migwas_result <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/DCM_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(tissue = V1, P_value = V2, Fold_change = V3) %>% 
   arrange(P_value)
-DCM_pheno.gene.pval <- read.table(file = "../../MIGWAS/gene_P/DCM_pheno.gene.pval.txt", header = FALSE) %>% 
+DCM_pheno.gene.pval <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/gene_P/DCM_pheno.gene.pval.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(gene=V1, P_value=V2)
-DCM_pheno.mir.pval <- read.table(file = "../../MIGWAS/miRNA_P/DCM_pheno.mir.pval.txt", header = FALSE) %>% 
+DCM_pheno.mir.pval <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/miRNA_P/DCM_pheno.mir.pval.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(miRNA=V1, P_value=V2)
 
 # 3 Heart Failure
-HF_pheno_migwas_candidates <- read.table(file = "../../MIGWAS/HF_pheno_migwas_candidates.txt", header = FALSE) %>% 
+HF_pheno_migwas_candidates <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/HF_pheno_migwas_candidates.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(percentile_score=V1,   # The percentile of scores indicating gene-miRNA target prediction certainty.
          target_gene=V2, miRNA=V3, MIMAT_ID=V4) %>% 
   left_join(mirnas2549_v21_MIMAT[2:3], by = c("MIMAT_ID"= "Accession"))
 # length(unique(HF_pheno_migwas_candidates$TargetName))   # 15 miRNAS unique
-HF_pheno_migwas_migwas_result <- read.table(file = "../../MIGWAS/HF_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
+HF_pheno_migwas_migwas_result <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/HF_pheno_migwas_migwas_result.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(tissue = V1, P_value = V2, Fold_change = V3) %>% 
   arrange(P_value)
-HF_pheno.gene.pval <- read.table(file = "../../MIGWAS/gene_P/HF_pheno.gene.pval.txt", header = FALSE) %>% 
+HF_pheno.gene.pval <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/gene_P/HF_pheno.gene.pval.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(gene=V1, P_value=V2)
-HF_pheno.mir.pval <- read.table(file = "../../MIGWAS/miRNA_P/HF_pheno.mir.pval.txt", header = FALSE) %>% 
+HF_pheno.mir.pval <- read.table(file = "/mnt/users/reich/rockerprojects/MIGWAS/miRNA_P/HF_pheno.mir.pval.txt", header = FALSE) %>% 
   as_tibble() %>% 
   rename(miRNA=V1, P_value=V2)
 ```
@@ -1133,7 +1104,7 @@ disease_vector <- c("ACS", "CAD", "DCM", "HFREF")
 migwas_result_list <- list("ACS_MIGWAS" = NULL, "CAD_MIGWAS" = CAD_pheno_migwas_candidates, "DCM_MIGWAS"=DCM_pheno_migwas_candidates, "HFREF_MIGWAS"=HF_pheno_migwas_candidates)
 
 for(disease in 1:length(disease_vector)) {
-  de.results <- readRDS(dplyr::last(list.files(path = "../output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
+  de.results <- readRDS(dplyr::last(list.files(path = "/mnt/users/reich/rockerprojects/bestageing2022/output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
   
   ### FDR calculation
   de.results$padj <- p.adjust(de.results$pval.t.test, method = "BH", n = length(de.results$pval.t.test))
@@ -1215,7 +1186,7 @@ for(disease in 1:length(disease_vector)) {
   print(volcano_1)
   
   if (SAVE.files ==TRUE ){
-    filename.volcano <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], ".svg")
+    filename.volcano <-paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], ".svg")
     ggsave(filename = filename.volcano, plot = volcano_1, 
              width = 12, height = 8, 
              units = "in"  # default
@@ -1240,7 +1211,7 @@ for(disease in 1:length(disease_vector)) {
     print(volcano_2)
     
     if (SAVE.files ==TRUE ){
-      filename.volcano2 <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_LITERATmiRNAs_ANNOT.svg")
+      filename.volcano2 <-paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_LITERATmiRNAs_ANNOT.svg")
       ggsave(filename = filename.volcano2, plot = volcano_2, 
                width = 12, height = 8, 
                units = "in"  # default
@@ -1266,7 +1237,7 @@ for(disease in 1:length(disease_vector)) {
           ggrepel::geom_text_repel(show.legend = FALSE) ->volcano_3
     print(volcano_3)
     if (SAVE.files ==TRUE ){
-      filename.volcano3 <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_MIGWAS_ANNOT.svg")
+      filename.volcano3 <-paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_MIGWAS_ANNOT.svg")
       ggsave(filename = filename.volcano3, plot = volcano_3, 
                width = 12, height = 8, 
                units = "in"  # default
@@ -1286,8 +1257,8 @@ for(disease in 1:length(disease_vector)) {
     ggarrange(volcano_1, volcano_2, volcano_3, ncol = 3, nrow=1, labels = c("A", "B", "C"))
     
     if (SAVE.files ==TRUE ){
-      filename.volcanos.arranged.png <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_arranged.png")
-      filename.volcanos.arranged.svg <-paste0("../output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_arranged.svg")
+      filename.volcanos.arranged.png <-paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_arranged.png")
+      filename.volcanos.arranged.svg <-paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/de_analysis/", Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_arranged.svg")
       ggsave(filename = filename.volcanos.arranged.png, plot = volcanos.arranged, 
                width = 12, height = 18, 
                units = "in"  # default
@@ -1325,7 +1296,7 @@ for(disease in 1:length(disease_vector)) {
       theme(legend.position = "none") -> volcano_frey
     
     if (SAVE.files ==TRUE ){
-      filename.volcano_frey <-paste0("../output/plots/de_analysis/", 
+      filename.volcano_frey <-paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/de_analysis/", 
                                      Sys.Date(), "_de_volcano_DISEASE_", disease_vector[disease], "_FREYmiRNAs_ANNOT.svg")
       ggsave(filename = filename.volcano_frey, plot = volcano_frey, 
                width = 8, height = 5,   # size for pptx
