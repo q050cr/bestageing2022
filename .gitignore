@@ -19,6 +19,7 @@ scripts/miRetrieve.R
 data/
 data-literature/
 figures/
+logs/
 output/
 presentation/
 renv/
@@ -30,6 +31,7 @@ scripts/test/
 scripts/gpt/test-python/
 scripts/gpt/debug/
 scripts/gpt/helper/
+scripts/old
 
 writing/
 .secret
