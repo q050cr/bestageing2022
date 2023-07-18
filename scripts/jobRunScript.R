@@ -6,8 +6,8 @@ callr::rscript( # https://callr.r-lib.org/reference/rscript.html
   cmdargs = character(),
   libpath = .libPaths()[1],
   #repos = default_repos(),
-  stdout = paste0(Sys.Date(), "_slurm.out"),  # Optionally a file name to send the standard output to
-  stderr = paste0(Sys.Date(), "_error.out"),
+  stdout = paste0("/tmp/out/", Sys.Date(), "_slurm.out"),  # Optionally a file name to send the standard output to
+  stderr = paste0("/tmp/err/", Sys.Date(), "_error.out"),
   #poll_connection = TRUE,
   echo = FALSE,  # default=FALSE
   show = TRUE,
