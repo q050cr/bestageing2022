@@ -4,6 +4,8 @@
 # this script is sourced from `scripts/render_param_reports.R`
 # selection provided by `all_combis$diseases` and `all_combis$analysis`
 
+# script creates plots: "fig01vogel2013", "fig02vogel2013"
+
 .libPaths("/mnt/users/reich/programs/R43/lib")
 # dependencies ---------------------------------------------------------------
 library(readxl, lib.loc = "/mnt/users/reich/programs/R43/lib")
@@ -14,6 +16,7 @@ library(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
 library(tidyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
 library(stringr, lib.loc = "/mnt/users/reich/programs/R43/lib")
 library(purrr, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
 library(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib")
 library(RColorBrewer, lib.loc = "/mnt/users/reich/programs/R43/lib")
 library(ggdist, lib.loc = "/mnt/users/reich/programs/R43/lib")
@@ -28,7 +31,10 @@ conflicted::conflict_prefer("expand", "tidyr")
 conflicted::conflicts_prefer(dplyr::filter)
 conflicted::conflicts_prefer(janitor::make_clean_names)
 
+source(file = "/mnt/users/reich/rockerprojects/bestageing2022/scripts/helper/custom_ggplot_theme.R")
+
 SAVE.files <- TRUE
+runTests <- FALSE
 
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
@@ -90,7 +96,7 @@ control_ids <- read_excel("/mnt/users/reich/BestAgeing/data/pheno_controls.xlsx"
 # "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
 control_ids <- control_ids[control_ids != "UKL-HD-00318"]
 
-miRetrieve_alldiseases <- readRDS(file = "/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/top50mirnas_all_diseases.rds") # created in "miRetrieve_topmirnas_all_diseases.R"
+miRetrieve_alldiseases <- readRDS(file = "/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/top50mirnas_all_diseases.rds") # created in "scripts/miRetrieve/miRetrieve_topmirnas_all_diseases.R"
 length(unique(miRetrieve_alldiseases$Accession))
 
 ###
@@ -135,6 +141,11 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
            sex = factor(sex) ) %>% 
     as_tibble()
   
+  if (SAVE.files ==TRUE) {
+    filename.data01 <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{disease}/data01.rds")
+    saveRDS(object = data01, file = filename.data01)
+  }
+  
   ## SUBSET of literature miRNAs
   # selected_mirna_dat <- paste0("data01_", length(researchMiRNAAccession$miRNAName_v21), "mirnas")  
   # assign(x = selected_mirna_dat, 
@@ -155,103 +166,160 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
   empse.cont <- rep(NA,ncol(all_mirnas)-1)
   empse.case <- rep(NA,ncol(all_mirnas)-1)
   aucs <- rep(NA,ncol(all_mirnas)-1)
+  auc_glm <- rep(NA,ncol(all_mirnas)-1)
   name.mir <- rep(NA,ncol(all_mirnas)-1)
   # indexing
   cont.index <- data01$disease == "control"
   case.index <- data01$disease == disease
   # run tests
-  for(miRNA in 1:(ncol(all_mirnas)-1)) {
-    # update index since first colnames are [1] "pat_id"  "disease"  "age"   "sex"  "hsa_let_7a_3p" 
-    miRNA_col <- miRNA+4
-    cont <- data01[cont.index, miRNA_col] %>% as_vector()
-    case <- data01[case.index, miRNA_col] %>% as_vector()
-    # median for log-median expression plot (Figure 1 Vogel2013)
-    mean.cont[miRNA] <- mean(cont)
-    mean.case[miRNA] <- mean(case)
-    median.cont[miRNA] <- median(cont)
-    median.case[miRNA] <- median(case)
-    empse.cont[miRNA] <- sd(cont)/ sqrt(length(cont))
-    empse.case[miRNA] <- sd(case)/ sqrt(length(case))
-    aucs[miRNA] <- suppressMessages(pROC::roc(controls=cont, cases=case)$auc[[1]])
-    name.mir[miRNA] <- names(data01[, miRNA_col])
+  
+  if (runTests == TRUE){  #takes time
+    for(miRNA in 1:(ncol(all_mirnas)-1)) {
+      # update index since first colnames are [1] "pat_id"  "disease"  "age"   "sex"  "hsa_let_7a_3p" 
+      miRNA_col <- miRNA+4
+      cont <- data01[cont.index, miRNA_col] %>% as_vector()
+      case <- data01[case.index, miRNA_col] %>% as_vector()
+      # median for log-median expression plot (Figure 1 Vogel2013)
+      mean.cont[miRNA] <- mean(cont)
+      mean.case[miRNA] <- mean(case)
+      median.cont[miRNA] <- median(cont)
+      median.case[miRNA] <- median(case)
+      empse.cont[miRNA] <- sd(cont)/ sqrt(length(cont))
+      empse.case[miRNA] <- sd(case)/ sqrt(length(case))
+      aucs[miRNA] <- suppressMessages(pROC::roc(controls=cont, cases=case)$auc[[1]])
+      name.mir[miRNA] <- names(data01[, miRNA_col])
+      
+      # average difference and logfold
+      mean.control <- mean(cont)
+      mean.case <- mean(case)
+      log2FoldChange[miRNA] <- mean.case - mean.control
+      ##log2FoldChange[miRNA] <- (mean.case - mean.control)/mean.control   # we are already on the log2 scale (https://support.bioconductor.org/p/117881/)
+      # pvals
+      pval.t.test[miRNA]<-t.test(cont,case)$p.value 
+      pval.u.test[miRNA] <- wilcox.test(as.numeric(cont), as.numeric(case), exact = FALSE)$p.value
+      # glm
+      name_miRNA <- colnames(data01)[miRNA_col]
+      f <- as.formula(paste("disease ~ ", name_miRNA, " + sex + age"))
+      logreg <- glm(formula = f, data = data01, family = binomial(link = "logit") )
+      predictions <- predict(logreg, newdata = data01[ , c("age", "sex", name_miRNA)], type = "response")
+      auc_glm[miRNA] <- suppressMessages(roc(data01$disease, predictions)$auc[[1]])
+      
+      pval.glm[miRNA] <- coef(summary(logreg))[2,4]
+    }
     
-    # average difference and logfold
-    mean.control <- mean(cont)
-    mean.case <- mean(case)
-    log2FoldChange[miRNA] <- mean.case - mean.control
-    ##log2FoldChange[miRNA] <- (mean.case - mean.control)/mean.control   # we are already on the log2 scale (https://support.bioconductor.org/p/117881/)
-    # pvals
-    pval.t.test[miRNA]<-t.test(cont,case)$p.value 
-    pval.u.test[miRNA] <- wilcox.test(as.numeric(cont), as.numeric(case), exact = FALSE)$p.value
-    # glm
-    name_miRNA <- colnames(data01)[miRNA_col]
-    f <- as.formula(paste("disease ~ ", name_miRNA, " + sex + age"))
-    logreg <- glm(formula = f, data = data01, family = binomial(link = "logit") )
-    pval.glm[miRNA] <- coef(summary(logreg))[2,4]
+    # GATHER Results -----------------------------------------------------------
+    # we conducted 2549 t-tests and 2549 glm-models for each gene
+    de.results <- tibble(miRNA = colnames(all_mirnas)[-1],  # all miRNAs without patID
+                         # average.difference = average.difference,
+                         log2FoldChange = log2FoldChange,
+                         pval.t.test = pval.t.test,
+                         pval.u.test = pval.u.test,
+                         pval.glm = pval.glm,
+                         aucs_univariate = aucs,
+                         aucs_glm = auc_glm)
+    
+    # for figure 1 vogel 2013 
+    results_logmedians <- tibble(miR =name.mir, auc=aucs, aucs_glm = auc_glm, pval.t.test = pval.t.test, pval.glm = pval.glm,
+                                 logmedian.cont = median.cont, logmedian.case = median.case,
+                                 logmean.cont = mean.cont, logmean.case = mean.case, empse.case, empse.cont) %>% 
+      mutate(auc= ifelse(auc<0.5, 1-auc, auc)) %>% 
+      mutate(padj = p.adjust(pval.t.test, method = "BH", n = length(name.mir)),
+             padj.glm = p.adjust(pval.glm, method = "BH", n = length(name.mir))) %>% 
+      mutate(sign_indicator = ifelse(padj < 0.05, "p.adj≤0.05", "n.s."))
+    
+    if (SAVE.files ==TRUE) {
+      filename.de.tibble <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{disease}/de_results.rds")
+      saveRDS(object = de.results, file = filename.de.tibble)
+      filename.logmedians <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{disease}/results_logmedians.rds")
+      saveRDS(object = results_logmedians, file = filename.logmedians)
+    }
   }
-  # we conducted 2549 t-tests and 2549 glm-models for each gene
-  de.results <- tibble(miRNA = colnames(all_mirnas)[-1],  # all miRNAs without patID
-                       # average.difference = average.difference,
-                       log2FoldChange = log2FoldChange,
-                       pval.t.test = pval.t.test,
-                       pval.u.test = pval.u.test,
-                       pval.glm = pval.glm)
   
-  ## figure 1 vogel 2013 -----------------
-  results_logmedians <- tibble(miR =name.mir, auc=aucs, pval.t.test = pval.t.test, pval.glm = pval.glm,
-                               logmedian.cont = median.cont, logmedian.case = median.case,
-                               logmean.cont = mean.cont, logmean.case = mean.case, empse.case, empse.cont) %>% 
-    mutate(auc= ifelse(auc<0.5, 1-auc, auc)) %>% 
-    mutate(padj = p.adjust(pval.t.test, method = "BH", n = length(name.mir)),
-           padj.glm = p.adjust(pval.glm, method = "BH", n = length(name.mir))) %>% 
-    mutate(sign_indicator = ifelse(padj < 0.05, "p.adj≤0.05", "n.s."))
+  rm(de.results, results_logmedians)
+  print(paste0("|||-----------------------Run finished for disease: ", toupper(disease), " -----------------------|||"))
+}
+
+
+
+rm(disease)  # errors in plot otherwise because colname and varname
+
+p2_listnew <- list()
+for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
+  data01 <- readRDS(file = glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{all_combis$diseases[mydisease]}/data01.rds"))
+  de_results <- readRDS(file = glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{all_combis$diseases[mydisease]}/de_results.rds"))
+  results_logmedians <- readRDS(file = glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{all_combis$diseases[mydisease]}/results_logmedians.rds"))
   
-  # plot
-  p1.1 <- ggplot(results_logmedians, aes(x = median.cont, y = logmedian.case)) +
+  # figure 01 vogel plot ------------------------------------------------------
+  p1.1 <- ggplot(results_logmedians, aes(x = logmedian.cont, y = logmedian.case)) +
     geom_point(alpha=0.3, shape=16) +
     #geom_count(color="black", size = 2) +
     geom_smooth(method = "lm", se = FALSE, color = "red", linetype = "dashed") +
-    labs(x = glue("controls\n[log-median expression]"), y = glue("{toupper(disease)} patients\n[log-median expression]")) +
-    theme_classic()
+    labs(x = glue("controls\n[log-median expression]"), y = glue("{toupper(all_combis$diseases[mydisease])} patients\n[log-median expression]")) +
+    #theme_classic()
+    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme()
   
   p1.2 <- ggplot() +
     geom_histogram(data = results_logmedians, aes(x = padj), fill = "white", color = "black", #binwidth = 0.05) +
                    breaks = seq(0, 1, by = 0.05) ) +
-    scale_x_continuous(breaks = seq(0, 1, by = 0.2), limits = c(0, 1), expand = c(0, 0)) +
+    scale_x_continuous(breaks = seq(0, 1, by = 0.2), limits = c(0, 1.05), expand = c(0, 0)) +
     geom_vline(xintercept = 0.05, color = "red", linetype = "dashed", size = 1) +
     labs(x = "t-test P-value\n(Benjamini-Hochberg corrected)", y = "Frequency") +
-    theme_classic()
+    #theme_classic()
+    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme()
   
   p1.3 <- ggplot() +
     geom_histogram(data = results_logmedians, aes(x = auc), fill = "white", color = "black", binwidth = 0.01) +
-    scale_x_continuous(breaks = seq(0.5, 0.8, by = 0.1), limits = c(0.45, 0.8), expand = c(0, 0)) +
+    scale_x_continuous(breaks = seq(0.5, 0.7, by = 0.1), limits = c(0.45, 0.8), expand = c(0, 0)) +
     geom_vline(xintercept = 0.5, color = "red", linetype = "dashed", size = 1) +
     labs(x = "Univariate AUC", y = "Frequency") +
-    theme_classic()
+    #theme_classic()
+    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme()
+  
+  baseline_glm_model <- glm(formula = disease~age+sex, data = data01, family = binomial(link = "logit") )
+  predictions <- predict(baseline_glm_model, newdata = data01[ , c("age", "sex")], type = "response")
+  auc_glm_baseline <- suppressMessages(roc(data01$disease, predictions)$auc[[1]])
+  p1.3b <- ggplot() +  # adjusted glm for age and sex
+    geom_histogram(data = results_logmedians, aes(x = aucs_glm), fill = "white", color = "black", binwidth = 0.01) +
+    scale_x_continuous(breaks = seq(0.6, 0.9, by = 0.1), limits = c(0.55, 0.85), expand = c(0, 0)) +
+    geom_vline(xintercept = auc_glm_baseline, color = "red", linetype = "dashed", size = 1) +
+    labs(x = "Univariate AUC", y = "Frequency") +
+    #theme_classic()
+    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme()
   
   # Arrange the plots into two rows
   plot_row1 <- p1.1 + labs(title = "A")
   plot_row2 <- ggarrange(p1.2 + labs(title = "B"), p1.3 + labs(title = "C"), nrow = 1, ncol = 2, widths = c(1, 1))
-  
+  plot_row2b <- ggarrange(p1.2 + labs(title = "B"), p1.3b + labs(title = "C"), nrow = 1, ncol = 2, widths = c(1, 1))
   # Combine the plots into a single plot with two rows
   fig1vogel2013 <- ggarrange(plot_row1, plot_row2, nrow = 2, heights = c(2, 1))
-  fig1vogel2013
-  # SAVE ------------------
+  fig1vogel2013b <- ggarrange(plot_row1, plot_row2b, nrow = 2, heights = c(2, 1))
+  
   if (SAVE.files ==TRUE) {
-    fig1vogel2013_path <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig01vogel2013/{toupper(disease)}_linear_correlation.svg")
+    fig1vogel2013_path <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig01vogel2013/{toupper(all_combis$diseases[mydisease])}_linear_correlation.svg")
+    fig1vogel2013_path_b <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig01vogel2013/{toupper(all_combis$diseases[mydisease])}_linear_correlation_b.svg")
     ggsave(filename = fig1vogel2013_path, plot = fig1vogel2013, 
            width = 8, height = 8, 
            units = "in"  # default
     )
-    # filename.de.tibble <-paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/", Sys.Date(), "_de_results_DISEASE_", toupper(disease), ".rds")
-    #  saveRDS(object = de.results, file = filename.de.tibble)
+    ggsave(filename = fig1vogel2013_path_b, plot = fig1vogel2013b, 
+           width = 8, height = 8, 
+           units = "in"  # default
+    )
   }
   
   ## figure 02 vogel 2013. ----------------------------
   # Step 1: select miRNAs from miRetrieve and disease
   disease_miRetrieve_mirnas <- miRetrieve_alldiseases %>% 
     mutate(Topic = toupper(Topic)) %>% 
-    filter(Topic == toupper(disease)) %>% 
+    filter(Topic == toupper(all_combis$diseases[mydisease])) %>% 
     pull(TargetName)
   no_mirnas <- 10
   topNmiRetrieve <- results_logmedians %>% 
@@ -270,7 +338,7 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
     arrange(desc(median_value)) %>%
     pull(feature)
   rainbow_plot_dat$feature <- factor(rainbow_plot_dat$feature, levels = feature_order)
-  rainbow_plot_dat$disease <- factor(rainbow_plot_dat$disease, levels = c(disease, "control"))
+  rainbow_plot_dat$disease <- factor(rainbow_plot_dat$disease, levels = c(all_combis$diseases[mydisease], "control"))
   # Calculate maximum values for each feature
   df_max <- rainbow_plot_dat %>% 
     group_by(feature, disease) %>% 
@@ -280,44 +348,56 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
     select(-disease) %>% 
     distinct(feature, .keep_all = TRUE) %>% 
     # label
-    left_join(topNmiRetrieve %>% select(miR, sign_indicator), by=c("feature"="miR"))
-
+    left_join(topNmiRetrieve %>% select(miR, sign_indicator, padj), by=c("feature"="miR"))  
+  
+  df_max <- df_max %>% 
+    mutate(sign_indicator_asterisks = case_when(
+      padj < 0.001 ~ "***",
+      padj>= 0.001 & padj < 0.01 ~ "**",
+      padj>= 0.01 & padj < 0.05 ~ "*",
+      .default = "n.s."
+    ))
+  
   # grouped box plots
   p2 <- ggplot(rainbow_plot_dat, aes(x=feature, y=value, fill = disease)) +
     geom_boxplot(position=position_dodge(width=0.8), outlier.shape = NA, alpha=0.7)+    
     geom_jitter(aes(color=disease),position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.9), size=0.1, alpha=0.2) +
-    geom_text(data = df_max, aes(y = max_value), label = df_max$sign_indicator, vjust = -0.5, size=2) +
+    # prevent geom_text() from searching for the disease variable, you can override the fill aesthetic by setting fill = NULL within the aes() function 
+    geom_text(data = df_max, aes(y = max_value, x=feature, fill = NULL), label = df_max$sign_indicator_asterisks, vjust = -0.5, size=2)+  
     labs(x = "", y = expression(paste("log"[2], " expression")), title = "") +
     scale_y_continuous(breaks = seq(0, ceiling(max(rainbow_plot_dat$value)), by = 2), #limits = c(0, 1), expand = c(0, 0)
-                       ) +
-    scale_color_brewer(palette = "Set1") + # Choose a color palette
-    scale_fill_brewer(palette = "Set1", labels = c(toupper(disease), "Control")) + guides(fill=guide_legend(title=NULL), color="none")+
-    theme_classic()+
+    )+
+    # theme_classic()+
+    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    scale_fill_manual(values = thematic::okabe_ito(6), labels = c(toupper(all_combis$diseases[mydisease]), "Control")) + guides(fill=guide_legend(title=NULL), color="none") +
+    scale_color_manual(values = thematic::okabe_ito(6)) +
+    #scale_color_brewer(palette = "Set1") + # Choose a color palette
+    #scale_fill_brewer(palette = "Set1", labels = c(toupper(all_combis$diseases[mydisease]), "Control")) + guides(fill=guide_legend(title=NULL), color="none")+
+    my_base_theme()+
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  p2 
-  saveRDS(object = p2, file = glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/rds/{disease}_rawggplot.rds"))
-  # store the plot so we can arrange it later to include all 4 diseases
-  # p2_list[[i]] <- p2  # somehow NA gets introduced into legend.. could not find out why
-  # https://www.datanovia.com/en/blog/how-to-add-p-values-onto-a-grouped-ggplot-using-the-ggpubr-r-package/
-  #p2 + stat_compare_means(aes(group = disease), label = "p.format")  # p.format
-
-  
-  rm(de.results, results_logmedians)
-  
-  print(paste0("|||-----------------------Run finished for disease: ", toupper(disease), " -----------------------|||"))
+  print(p2)
+  p2_listnew[[mydisease]] <- p2
+  if (SAVE.files ==TRUE) {
+    fig2_disease_vogel2013_path <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/{toupper(all_combis$diseases[mydisease])}_topdysregulatedmiRetrievemiR.svg")
+    ggsave(filename = fig2_disease_vogel2013_path, plot = p2, 
+           width = 8, height = 8, 
+           units = "in"  # default
+    )
+  }
+  #combine fig01 and fig02 for disease
+  #plot_0102_combined <- ggarrange(fig1vogel2013b, p2 + labs(title = "D"), nrow = 2, ncol = 1, heights = c(1.5, 1))
+  #plot_0102_combined
 }
 
-p2_list_rds <- list(readRDS("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/rds/acs_rawggplot.rds"),
-                    readRDS("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/rds/cad_rawggplot.rds"),
-                    readRDS("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/rds/dcm_rawggplot.rds"),
-                    readRDS("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/rds/hfref_rawggplot.rds"))
+fig2vogel2013 <- ggarrange(plotlist = p2_listnew, ncol = 2, nrow = 2, 
+                           labels = c("A", "B", "C", "D"))
 
-
-ptest[[1]] <- p2
-ptest[[2]] <- p2 + scale_fill_brewer(palette = "Set1", labels = c("ACS", "Control")) + guides(fill=guide_legend(title=NULL), color="none")
-
-p2_list_test <- p2_list
-
-ggarrange(plotlist = p2_list_rds, 
-          labels = c("A", "B", "C", "D"),  # Labels for each plot
-          ncol = 2, nrow = 2)              # Number of columns and rows
+# To print the plot
+print(fig2vogel2013)
+if (SAVE.files ==TRUE) {
+  fig2vogel2013_path <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/arranged_topdysregulatedmiRetrievemiR.svg")
+  ggsave(filename = fig2vogel2013_path, plot = fig2vogel2013, 
+         width = 12, height = 12, 
+         units = "in"  # default
+  )
+}

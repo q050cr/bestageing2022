@@ -10,6 +10,7 @@
 #SBATCH --mem=32G
 #SBATCH --mail-user=q050cr@gmail.com
 #SBATCH --mail-type=END,FAIL
+#SBATCH -w benjamin
 
 # This script runs an R script with 3 arguments. The arguments are passed 
 # to the R script and also incorporated into the output filename.
@@ -30,10 +31,15 @@ SINGULARITY_IMAGE="/mnt/users/reich/programs/christophs_custom_rocker_24.sif"
 R_SCRIPT_PATH="/mnt/users/reich/rockerprojects/bestageing2022/scripts/model.R"
 
 # Set Singularity to use a different temporary directory
-export SINGULARITY_TMPDIR="/mnt/users/reich/tmp"
+# export SINGULARITY_TMPDIR="/mnt/users/reich/tmp"  # error 
+
 export R_LIBS="/mnt/users/reich/programs/R43/lib:$R_LIBS"
 
-singularity exec ${SINGULARITY_IMAGE} Rscript ${R_SCRIPT_PATH} $1 $2 $3
+singularity exec \
+    --bind /mnt/users/reich/rockerprojects/bestageing2022 \
+    --bind /mnt/users/reich/BestAgeing \
+    ${SINGULARITY_IMAGE} 
+    Rscript ${R_SCRIPT_PATH} $1 $2 $3
 
 echo "Job ended at $(date)"
 echo "== End of Job =="
