@@ -3,20 +3,24 @@
 ## 
 # file:///Users/christophreich/Downloads/lqab117_supplemental_files/Supplementary%20File%205%20Second%20Revision.html
 
-version$version.string
+#version$version.string
 
 #  Load libraries
-library(miRetrieve); packageVersion('miRetrieve')
-library(magrittr) # Load magrittr for %>%
-library(ggplot2) # Load ggplot2 for plotting
-library(easyPubMed) # Load easyPubMed, access to PubMed
-library(rcrossref)
-library(dplyr) # Data wrangling
-library(tidyr) # Data wrangling
-library(patchwork) # Group graphs
+require(miRetrieve, lib.loc = "/mnt/users/reich/programs/R43/lib"); packageVersion('miRetrieve')
+require(glue, lib.loc = "/mnt/users/reich/programs/R43/lib")
+require(magrittr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Load magrittr for %>%
+require(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib") # Load ggplot2 for plotting
+require(svglite, lib.loc = "/mnt/users/reich/programs/R43/lib")
+require(easyPubMed, lib.loc = "/mnt/users/reich/programs/R43/lib") # Load easyPubMed, access to PubMed
+require(rcrossref, lib.loc = "/mnt/users/reich/programs/R43/lib")
+require(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Data wrangling
+require(tidyr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Data wrangling
+require(patchwork, lib.loc = "/mnt/users/reich/programs/R43/lib") # Group graphs
 #easyPubMed does not work
-library(rentrez)
-library(pubmedR)
+require(rentrez, lib.loc = "/mnt/users/reich/programs/R43/lib")
+require(pubmedR, lib.loc = "/mnt/users/reich/programs/R43/lib")
+
+source(file = "/mnt/users/reich/rockerprojects/bestageing2022/scripts/helper/custom_ggplot_theme.R")
 
 saveFILE <- TRUE
 
@@ -91,12 +95,18 @@ count_plot_fn <- function(df_count) {
     geom_col(position = "dodge") +
     coord_flip() +
     guides(fill = guide_legend(reverse = TRUE, title = "Method")) +
-    scale_fill_brewer(palette = "Dark2") +
-    theme_classic() +
+    # scale_fill_brewer(palette = "Dark2") +
+    # theme_classic() +
     ylab("# of articles") + 
-    scale_y_continuous(expand = c(0,0))
+    scale_y_continuous(expand = c(0,0)) +
+    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme()
+  
   return(count_plot)
 }
+
+
 
 ##
 # QUERY LOOP -----------------------------------------------------------------
@@ -107,7 +117,7 @@ topn.mirna.plt <- 20 # how many mirnas should be plotted in barplot?
 
 for (disease in seq_along(diseases)) {
   subset <- "-human" # changed to "-human" only, could also be changed to "-humantrials" only, or "" for full pubmed search !!!, only works without date in next line!
-  file <- glue::glue("./data-literature/pubmed-downloads/2023-06-14-pubmed-MicroRNA{subset}-{diseases[disease]}.txt")  
+  file <- glue::glue("./data-literature/pubmed-downloads/2023-06-14-pubmed-MicroRNA{subset}-{toupper(diseases[disease])}.txt")  
   
   ## load abstracts ----------------------------------------------------------
   df <- read_pubmed(file, topic = diseases[disease]) %>% 
@@ -132,9 +142,9 @@ for (disease in seq_along(diseases)) {
     extract_mir_df(threshold = 1,
                    extract_letters = TRUE)
   no.unique.articles <- length(unique(df_comparison$PMID))
+  print(glue("---There are {no.unique.articles} unique articles concerning {diseases[disease]}---"))
   
-  
-  ## Pubmed Manual Inquiry ------------------------------------------------
+  ## Pubmed Manual Inquiry and for GPT API ------------------------------------------------
   df_comparison_manual_pubmed <- df_comparison %>% 
     # Subset for original articles
     subset_research() %>%
@@ -149,12 +159,13 @@ for (disease in seq_along(diseases)) {
   df_comparison_manual_pubmed$Type <- df_comparison_manual_pubmed$Type %>% 
     purrr::map_chr(., ~ paste(., collapse = ", "))
   
-  if (saveFILE == TRUE) {
-    write.csv2(x = df_comparison_manual_pubmed, 
-               file = glue::glue("./data-literature/pubmed/{diseases[disease]}-{Sys.Date()}{subset}-pubmed_check-unique-articles{no.unique.articles}.csv"))
-  }
+  #if (saveFILE == TRUE) {
+  #  write.csv2(x = df_comparison_manual_pubmed, 
+  #             file = glue::glue("./data-literature/pubmed/{diseases[disease]}-{Sys.Date()}{subset}-pubmed_check-unique-articles{no.unique.articles}.csv"))
+  #}
   
-  # Count miRNAs Top 30
+  # Top 30 miRNAS letters/ no letters --------------------------------------------------------
+  # Count miRNAs Top 30 
   df_count_letter <- 
     df_comparison %>% 
     count_mir() %>% 
@@ -182,21 +193,24 @@ for (disease in seq_along(diseases)) {
     dplyr::slice(1:30)
   
   # Obtain PubMed IDs from query "{miRNA} + {disease}" ----------------------------
+  # takes time for querying entrez
   count_pubmed_vec <- purrr::map(df_count_no_letter$miRNA, ~compare_count(mir = .x, mesh_query = query_list[[diseases[disease]]])) %>% 
     purrr::set_names(df_count_no_letter$miRNA)
   
   count_pubmed_vec_letter <- purrr::map(df_count_letter$miRNA, ~compare_count(mir = .x, mesh_query = query_list[[diseases[disease]]])) %>% 
     purrr::set_names(df_count_letter$miRNA)
   
-  ## Figure 1: Compare miRetrieve with PubMeds miRNA count -------------------
+  ## Figure 1: Compare Top 30 miRetrieve with PubMeds miRNA count -------------------
   
   ## a) no letter
   # Obtain number of PubMed results
   length_pmid <- purrr::map(count_pubmed_vec, length) %>% 
     unlist()
-  
+  concatenated_list_no_letter <- purrr::map(count_pubmed_vec, ~paste(.x, collapse = ", ")) %>% 
+    unlist()
   # Add number of PubMed results to dataframe "df_count_no_letter"
   df_count_no_letter[3] <- length_pmid
+  df_count_no_letter$PMIDs <- concatenated_list_no_letter
   names(df_count_no_letter)[3] <- "PubMed"
   names(df_count_no_letter)[2] <- "miRetrieve"
   # Plot # of miRNAs with miRetrieve vs. PubMed (no letters)
@@ -206,9 +220,11 @@ for (disease in seq_along(diseases)) {
   # Obtain number of PubMed results
   length_pmid_letter <- purrr::map(count_pubmed_vec_letter, length) %>% 
     unlist()
-  
+  concatenated_list_letter <- purrr::map(count_pubmed_vec_letter, ~paste(.x, collapse = ", ")) %>% 
+    unlist()
   # Add number of PubMed results to dataframe "df_count_letter"
   df_count_letter[3] <- length_pmid_letter
+  df_count_letter$PMIDs <- concatenated_list_letter
   names(df_count_letter)[3] <- "PubMed"
   names(df_count_letter)[2] <- "miRetrieve" 
   
@@ -219,26 +235,39 @@ for (disease in seq_along(diseases)) {
   # Plot # of miRNAs with miRetrieve vs. PubMed (no letters)
   count_plot1_letter <- count_plot_fn(df_count = df_count_letter)
   
-  # Combine plots (Figure 1)
+  # Combine plots with {patchwork} (Figure 1)
   combined <- count_plot1 + count_plot1_letter & theme(legend.position = "bottom")
   
   combined <- combined + 
     plot_layout(guides = "collect") + 
     plot_annotation(tag_levels = "A")
+  print(combined)
+  
+  # only plot top 30miRNAs mixed letters FINAL PLOT 1
+  df_count_mixed <- bind_rows(df_count_letter, df_count_no_letter) %>% arrange(desc(miRetrieve)) %>% 
+    slice(1:30) %>% 
+    mutate(miRNA = paste0("hsa-", miRNA))
+  count_plot_mixed <- count_plot_fn(df_count=df_count_mixed)
+  print(count_plot_mixed)
   
   if (saveFILE == TRUE) {
     saveRDS(object = df_comparison,  # all miRNAs in df 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_comparison.rds"))
+            file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_comparison.rds"))
     write.csv2(x = df_comparison %>% select(-Type),  # is a list column...
-               file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_comparison.csv"))
+               file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_comparison.csv"))
     saveRDS(object = df_count_both,  # count top 30 mirnas with letter suffix and top 30 without 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_count_both.rds"))
+            file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_count_both.rds"))
     write.csv2(x = df_count_both,  # count top 30 mirnas with letter suffix and top 30 without 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-df_count_both.csv"))
+            file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_count_both.csv"))
     
-    filename.fig1 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure1-compare")
+    filename.fig1 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure1-compareTop30")
     ggsave(filename = paste0(filename.fig1, ".svg"), plot =  combined, 
            width = 10, height = 6, 
+           units = "in"  # default
+    )
+    filename.fig1_mixed <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure1-compareTop30_mixed_letter")
+    ggsave(filename = paste0(filename.fig1_mixed, ".svg"), plot =  count_plot_mixed, 
+           width = 8, height = 6, 
            units = "in"  # default
     )
   }
@@ -256,20 +285,22 @@ for (disease in seq_along(diseases)) {
     summarise(mean(Score), sd(Score), sum(miRetrieve), sum(PubMed))
   
   ## Figure 2: Top miRNAs in {Disease} ---------------------------------------
+  ## equals the `count_plot_mixed` plot!!
+  #most_frequently_miRNA <- plot_mir_count(df_comparison,
+  #                                        top = topn.mirna.plt,  # defined above how many miRNAs should be plotted
+  #                                        title = glue::glue("Most frequently mentioned miRNAs in {diseases[disease]}")) +
+  #  theme_minimal(base_size = 16, base_family = 'Source Sans Pro') +
+  #  scale_fill_manual(values = thematic::okabe_ito(6)) +
+  #  my_base_theme()
   
-  most_frequently_miRNA <- plot_mir_count(df,
-                                          top = topn.mirna.plt,
-                                          title = glue::glue("Most frequently mentioned miRNAs in {diseases[disease]}"))
-  
-  if (saveFILE == TRUE) {
-    
-    filename.fig2 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure2-mostfrequent")
-    ggsave(filename = paste0(filename.fig2, ".svg"), plot =  most_frequently_miRNA, 
-           width = 8, height = 8, 
-           units = "in"  # default
-    )
-  }
-  
+  #if (saveFILE == TRUE) {
+  #  filename.fig2 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure2-mostfrequent")
+  #  ggsave(filename = paste0(filename.fig2, ".svg"), plot =  most_frequently_miRNA, 
+  #         width = 8, height = 8, 
+  #         units = "in"  # default
+  #  )
+  #}
+  #
   ## Figure 7: Potential miRNA biomarker in diseases --------------------
   # pinpointed abstracts containing at least five marker 
   #   words for biomarker(bio-marker, biological marker, 
@@ -277,25 +308,46 @@ for (disease in seq_along(diseases)) {
   #   exosomal, exosomes,extracellular vesicles, plasma, serum, urinary, urine). 
   
   # Potential miRNA biomarker in ACS
-  disease_biomarker <- calculate_score_biomarker(df,
+  disease_biomarker <- calculate_score_biomarker(df_comparison,
                                                  biomarker_keywords[-c(5,6,9,10)],  # no urine, body fluid
+                                                 # circulating, biomarker, bio-marker, extracellular vesicles, exosomes, exosomal, diagnostic, biological marker, biomarker, bio-marker, biomarker, bio-marker, serum, plasma
                                                  threshold = 5,
                                                  discard = TRUE)
   
   # Plot top 7 miRNA biomarker in DCM
   biomarker_plot <- plot_mir_count(disease_biomarker, 
                                    top = topn.mirna.plt,
-                                   title = glue::glue("Potential biomarker miRNAs in {diseases[disease]}"))
+                                   colour = thematic::okabe_ito(6)[2],
+                                   title = glue::glue("Potential biomarker miRNAs in {diseases[disease]}")) +
+    theme_minimal(base_size = 16, base_family = 'Source Sans Pro') +
+    labs(title = NULL) +
+    #scale_fill_manual(values = thematic::okabe_ito(6)[3]) +
+    #scale_colour_manual(values = thematic::okabe_ito(6)[3]) +
+    #geom_col(alpha=0.5)+
+    my_base_theme()
+  print(biomarker_plot)
+  # modify plot to really only include 20 bars (problem with DCM loads of miRNAs have only 1 abstract)
+  biomarker_plot <- biomarker_plot$data %>% 
+    arrange(desc(n)) %>% 
+    mutate(miR=paste0("hsa-",miR)) %>% 
+    mutate(miR = forcats::fct_reorder(miR,n)) %>% 
+    slice(1:topn.mirna.plt) %>% 
+    ggplot(aes(x=miR, y = n)) + 
+    geom_col(fill = thematic::okabe_ito(6)[2]) +
+    coord_flip() + xlab("miRNA") + ylab("Mentioned in # of abstracts") + 
+    theme_minimal(base_size = 16, base_family = 'Source Sans Pro') +
+    my_base_theme()
+  
   if (saveFILE == TRUE) {
-    
+    # RDS will be used in "02harmonise-miRetrieve-v21.R" script
     saveRDS(object = disease_biomarker, 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-disease_biomarker.rds"))
-    write.csv2(x = disease_biomarker, 
-               file = glue::glue("./data-literature/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-disease_biomarker.csv"))
+            file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-disease_biomarker.rds"))
+    #write.csv2(x = disease_biomarker, 
+    #           file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-disease_biomarker.csv"))
     
-    filename.fig7 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure7-mostfrequent")
+    filename.fig7 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure7-mostfrequent_potential_miRNA_biomarker")
     ggsave(filename = paste0(filename.fig7, ".svg"), plot =  biomarker_plot, 
-           width = 8, height = 8, 
+           width = 6, height = 6, 
            units = "in"  # default
     )
   }
@@ -307,7 +359,7 @@ for (disease in seq_along(diseases)) {
 # not included in loop ----------------------------------------------------
 
 # Figure 3: Top terms {disease} -------------------------------------------
-# Generate new stop word list specifically for atherosclerosis to 
+# Generate new stop word list specifically for diseases to 
 # improve overview
 disease_stop <- generate_stopwords(c("atherosclerosis",
                                      "atherosclerotic",
@@ -438,39 +490,4 @@ plot_combined +
   plot_annotation(tag_levels = 'A')  + 
   plot_layout(guides = "collect")
 
-
-
-
-# also included in loop ---------------------------------------------------
-
-# Figure 7: Potential miRNA biomarker in both diseases --------------------
-# pinpointed abstracts containing at least five marker 
-#   words for biomarker(bio-marker, biological marker, 
-#   biomarker, body fluid,bodyfluid, circulating, diagnostic, 
-#   exosomal, exosomes,extracellular vesicles, plasma, serum, urinary, urine). 
-
-# Potential miRNA biomarker in ACS
-acs_biomarker <- calculate_score_biomarker(df_acs,
-                                           biomarker_keywords[-c(5,6,9,10)],  # no urine, body fluid
-                                           threshold = 5,
-                                           discard = TRUE)
-
-
-# Plot top 7 miRNA biomarker in ACS
-bm_acs_plot <- plot_mir_count(acs_biomarker, 
-                              top = 8,
-                              title = "Potential biomarker miRNAs in ACS")
-
-# Potential miRNA biomarker in DCM
-dcm_biomarker <- calculate_score_biomarker(df_dcm,
-                                           threshold = 5,
-                                           discard = TRUE)
-
-# Plot top 7 miRNA biomarker in DCM
-bm_dcm_plot <- plot_mir_count(dcm_biomarker, 
-                              top = 8,
-                              title = "Potential biomarker miRNAs in DCM")
-
-# Combine plot (Figure 7)
-(bm_acs_plot) + (bm_dcm_plot) + plot_annotation(tag_levels = 'A')
 
