@@ -26,51 +26,71 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
+miRetrieveBiomarker <- TRUE
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  .libPaths("/mnt/users/reich/programs/R43/lib")
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
+library(readxl, lib.loc = lib_path)
+library(glue, lib.loc = lib_path )
+library(janitor, lib.loc = lib_path)
+library(dplyr, lib.loc = lib_path)
+library(tidyr, lib.loc = lib_path)
+library(forcats, lib.loc = lib_path)
+library(stringr, lib.loc = lib_path)
+library(purrr, lib.loc = lib_path)
+library(ggplot2, lib.loc = lib_path)
+library(ggpubr, lib.loc = lib_path)
+library(ggrepel, lib.loc = lib_path)
+library(ggthemes, lib.loc = lib_path)
+library(kableExtra, lib.loc = lib_path)
+library(skimr, lib.loc = lib_path)
+library(tableone, lib.loc = lib_path)
+library(pROC, lib.loc = lib_path)
+library(tidymodels, lib.loc = lib_path)
+options(tidymodels.dark = TRUE)
+library(discrim, lib.loc = lib_path)  # NaiveBayes
+library(vetiver, lib.loc = lib_path)
+library(workflowsets, lib.loc = lib_path)
+library(baguette, lib.loc = lib_path)
+library(rules, lib.loc = lib_path)
+library(finetune, lib.loc = lib_path)
+library(DALEXtra, lib.loc = lib_path)
+tidymodels_prefer()
+conflicted::conflict_prefer("expand", "tidyr")
+caching <- FALSE
+
 knitr::opts_chunk$set(echo = FALSE)
-figurespath <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/reports/", 
+figurespath <- paste0(data_path_bestageing2022, "/bestageing2022/reports/", 
                       format(Sys.time(), "%Y%m%d"), '_ba_diagnostic_DISEASE_', stringr::str_to_upper(params$disease), 
                       "_ANALYSIS_", stringr::str_to_upper(params$analysis), "_figures/")
 knitr::opts_chunk$set(fig.path = figurespath)
 
 # rm(list=ls())
-SAVE.files <- FALSE
-miRetrieveBiomarker <- TRUE
-
-library(readxl, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(glue, lib.loc = "/mnt/users/reich/programs/R43/lib" )
-library(janitor, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(tidyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(forcats, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(stringr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(purrr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggpubr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggrepel, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggthemes, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(kableExtra, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(skimr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(tableone, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(pROC, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(tidymodels, lib.loc = "/mnt/users/reich/programs/R43/lib")
-options(tidymodels.dark = TRUE)
-library(discrim, lib.loc = "/mnt/users/reich/programs/R43/lib")  # NaiveBayes
-library(vetiver, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(workflowsets, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(baguette, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(rules, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(finetune, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(DALEXtra, lib.loc = "/mnt/users/reich/programs/R43/lib")
-tidymodels_prefer()
-conflicted::conflict_prefer("expand", "tidyr")
-caching <- FALSE
 
 cores <- parallel::detectCores()
 if (!grepl("mingw32", R.Version()$platform)) {
-   library(doMC, lib.loc = "/mnt/users/reich/programs/R43/lib")
+   library(doMC, lib.loc = lib_path)
    registerDoMC(cores = cores/2)
 } else {
-   library(doParallel, lib.loc = "/mnt/users/reich/programs/R43/lib")
+   library(doParallel, lib.loc = lib_path)
    cl <- makePSOCKcluster(cores/2)
    registerDoParallel(cl)
 }

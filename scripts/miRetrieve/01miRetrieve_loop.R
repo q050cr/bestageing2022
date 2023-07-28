@@ -2,25 +2,44 @@
 
 ## 
 # file:///Users/christophreich/Downloads/lqab117_supplemental_files/Supplementary%20File%205%20Second%20Revision.html
-
 #version$version.string
 
-#  Load libraries
-require(miRetrieve, lib.loc = "/mnt/users/reich/programs/R43/lib"); packageVersion('miRetrieve')
-require(glue, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(magrittr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Load magrittr for %>%
-require(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib") # Load ggplot2 for plotting
-require(svglite, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(easyPubMed, lib.loc = "/mnt/users/reich/programs/R43/lib") # Load easyPubMed, access to PubMed
-require(rcrossref, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Data wrangling
-require(tidyr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Data wrangling
-require(patchwork, lib.loc = "/mnt/users/reich/programs/R43/lib") # Group graphs
-#easyPubMed does not work
-require(rentrez, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(pubmedR, lib.loc = "/mnt/users/reich/programs/R43/lib")
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+saveFILE <- TRUE
 
-source(file = "/mnt/users/reich/rockerprojects/bestageing2022/scripts/helper/custom_ggplot_theme.R")
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
+#  Load libraries
+require(miRetrieve, lib.loc = lib_path); packageVersion('miRetrieve')
+require(glue, lib.loc = lib_path)
+require(magrittr, lib.loc = lib_path) # Load magrittr for %>%
+require(ggplot2, lib.loc = lib_path) # Load ggplot2 for plotting
+require(svglite, lib.loc = lib_path)
+require(easyPubMed, lib.loc = lib_path) # Load easyPubMed, access to PubMed
+require(rcrossref, lib.loc = lib_path)
+require(dplyr, lib.loc = lib_path) # Data wrangling
+require(tidyr, lib.loc = lib_path) # Data wrangling
+require(patchwork, lib.loc = lib_path) # Group graphs
+#easyPubMed does not work
+require(rentrez, lib.loc = lib_path)
+require(pubmedR, lib.loc = lib_path)
+
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
 saveFILE <- TRUE
 
@@ -99,7 +118,7 @@ count_plot_fn <- function(df_count) {
     # theme_classic() +
     ylab("# of articles") + 
     scale_y_continuous(expand = c(0,0)) +
-    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
     scale_fill_manual(values = thematic::okabe_ito(6)) +
     my_base_theme()
   
@@ -114,10 +133,9 @@ count_plot_fn <- function(df_count) {
 docl <- list()  # create a list object for storing results
 
 topn.mirna.plt <- 20 # how many mirnas should be plotted in barplot?
-
 for (disease in seq_along(diseases)) {
   subset <- "-human" # changed to "-human" only, could also be changed to "-humantrials" only, or "" for full pubmed search !!!, only works without date in next line!
-  file <- glue::glue("./data-literature/pubmed-downloads/2023-06-14-pubmed-MicroRNA{subset}-{toupper(diseases[disease])}.txt")  
+  file <- glue::glue("{data_path_bestageing2022}/data-literature/pubmed-downloads/2023-06-14-pubmed-MicroRNA{subset}-{toupper(diseases[disease])}.txt")  
   
   ## load abstracts ----------------------------------------------------------
   df <- read_pubmed(file, topic = diseases[disease]) %>% 
@@ -161,7 +179,7 @@ for (disease in seq_along(diseases)) {
   
   #if (saveFILE == TRUE) {
   #  write.csv2(x = df_comparison_manual_pubmed, 
-  #             file = glue::glue("./data-literature/pubmed/{diseases[disease]}-{Sys.Date()}{subset}-pubmed_check-unique-articles{no.unique.articles}.csv"))
+  #             file = glue::glue("{data_path_bestageing2022}/data-literature/pubmed/{diseases[disease]}-{Sys.Date()}{subset}-pubmed_check-unique-articles{no.unique.articles}.csv"))
   #}
   
   # Top 30 miRNAS letters/ no letters --------------------------------------------------------
@@ -252,20 +270,20 @@ for (disease in seq_along(diseases)) {
   
   if (saveFILE == TRUE) {
     saveRDS(object = df_comparison,  # all miRNAs in df 
-            file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_comparison.rds"))
-    write.csv2(x = df_comparison %>% select(-Type),  # is a list column...
-               file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_comparison.csv"))
+            file = glue::glue("{data_path_bestageing2022}/data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_comparison.rds"))
+    #write.csv2(x = df_comparison %>% select(-Type),  # is a list column...
+    #           file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_comparison.csv"))
     saveRDS(object = df_count_both,  # count top 30 mirnas with letter suffix and top 30 without 
-            file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_count_both.rds"))
-    write.csv2(x = df_count_both,  # count top 30 mirnas with letter suffix and top 30 without 
-            file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_count_both.csv"))
+            file = glue::glue("{data_path_bestageing2022}/data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_count_both.rds"))
+    #write.csv2(x = df_count_both,  # count top 30 mirnas with letter suffix and top 30 without 
+    #        file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-df_count_both.csv"))
     
-    filename.fig1 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure1-compareTop30")
+    filename.fig1 <- glue::glue("{data_path_bestageing2022}/output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure1-compareTop30")
     ggsave(filename = paste0(filename.fig1, ".svg"), plot =  combined, 
            width = 10, height = 6, 
            units = "in"  # default
     )
-    filename.fig1_mixed <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure1-compareTop30_mixed_letter")
+    filename.fig1_mixed <- glue::glue("{data_path_bestageing2022}/output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure1-compareTop30_mixed_letter")
     ggsave(filename = paste0(filename.fig1_mixed, ".svg"), plot =  count_plot_mixed, 
            width = 8, height = 6, 
            units = "in"  # default
@@ -284,42 +302,32 @@ for (disease in seq_along(diseases)) {
     mutate(Score = ifelse(is.infinite(Score), 0.01, Score)) %>%
     summarise(mean(Score), sd(Score), sum(miRetrieve), sum(PubMed))
   
-  ## Figure 2: Top miRNAs in {Disease} ---------------------------------------
-  ## equals the `count_plot_mixed` plot!!
-  #most_frequently_miRNA <- plot_mir_count(df_comparison,
-  #                                        top = topn.mirna.plt,  # defined above how many miRNAs should be plotted
-  #                                        title = glue::glue("Most frequently mentioned miRNAs in {diseases[disease]}")) +
-  #  theme_minimal(base_size = 16, base_family = 'Source Sans Pro') +
-  #  scale_fill_manual(values = thematic::okabe_ito(6)) +
-  #  my_base_theme()
   
-  #if (saveFILE == TRUE) {
-  #  filename.fig2 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure2-mostfrequent")
-  #  ggsave(filename = paste0(filename.fig2, ".svg"), plot =  most_frequently_miRNA, 
-  #         width = 8, height = 8, 
-  #         units = "in"  # default
-  #  )
-  #}
-  #
-  ## Figure 7: Potential miRNA biomarker in diseases --------------------
-  # pinpointed abstracts containing at least five marker 
-  #   words for biomarker(bio-marker, biological marker, 
-  #   biomarker, body fluid,bodyfluid, circulating, diagnostic, 
-  #   exosomal, exosomes,extracellular vesicles, plasma, serum, urinary, urine). 
-  
+  ## Figure 7 plot --------------------------------------------------------------
   # Potential miRNA biomarker in ACS
   disease_biomarker <- calculate_score_biomarker(df_comparison,
                                                  biomarker_keywords[-c(5,6,9,10)],  # no urine, body fluid
                                                  # circulating, biomarker, bio-marker, extracellular vesicles, exosomes, exosomal, diagnostic, biological marker, biomarker, bio-marker, biomarker, bio-marker, serum, plasma
-                                                 threshold = 5,
-                                                 discard = TRUE)
+                                                 threshold = NULL,
+                                                 discard = FALSE)
+  
+  disease_biomarker_with_article_count <- disease_biomarker %>% 
+    left_join(df_comparison %>% count_mir(), by=c("miRNA"="miRNA")) %>% 
+    rename(miRetrieve=Mentioned_n) %>% 
+    group_by(miRNA) %>%  
+    mutate(max_value = (Biomarker_score + miRetrieve)) %>%  # for selection
+    arrange(desc(max_value)) %>% 
+    slice(1) %>% 
+    ungroup() %>% 
+    arrange(desc(max_value)) %>% 
+    select(Topic, miRNA, Biomarker_score, miRetrieve, max_value)
   
   # Plot top 7 miRNA biomarker in DCM
   biomarker_plot <- plot_mir_count(disease_biomarker, 
                                    top = topn.mirna.plt,
                                    colour = thematic::okabe_ito(6)[2],
                                    title = glue::glue("Potential biomarker miRNAs in {diseases[disease]}")) +
-    theme_minimal(base_size = 16, base_family = 'Source Sans Pro') +
+    theme_minimal(base_size = 16, base_family = 'Arial') +
     labs(title = NULL) +
     #scale_fill_manual(values = thematic::okabe_ito(6)[3]) +
     #scale_colour_manual(values = thematic::okabe_ito(6)[3]) +
@@ -335,17 +343,17 @@ for (disease in seq_along(diseases)) {
     ggplot(aes(x=miR, y = n)) + 
     geom_col(fill = thematic::okabe_ito(6)[2]) +
     coord_flip() + xlab("miRNA") + ylab("Mentioned in # of abstracts") + 
-    theme_minimal(base_size = 16, base_family = 'Source Sans Pro') +
+    theme_minimal(base_size = 16, base_family = 'Arial') +
     my_base_theme()
   
   if (saveFILE == TRUE) {
     # RDS will be used in "02harmonise-miRetrieve-v21.R" script
     saveRDS(object = disease_biomarker, 
-            file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-disease_biomarker.rds"))
-    #write.csv2(x = disease_biomarker, 
-    #           file = glue::glue("./data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-disease_biomarker.csv"))
+            file = glue::glue("{data_path_bestageing2022}/data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-disease_biomarker.rds"))
+    saveRDS(object = disease_biomarker_with_article_count,   # new for 03miRetrieve_topmirnas_all_diseases.R
+            file = glue::glue("{data_path_bestageing2022}/data-literature/miRetrieve/{tolower(diseases[disease])}/{Sys.Date()}{subset}-disease_biomarker_with_article_count.rds"))
     
-    filename.fig7 <- glue::glue("./output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure7-mostfrequent_potential_miRNA_biomarker")
+    filename.fig7 <- glue::glue("{data_path_bestageing2022}/output/plots/miRetrieve/{diseases[disease]}/{Sys.Date()}{subset}-figure7-mostfrequent_potential_miRNA_biomarker")
     ggsave(filename = paste0(filename.fig7, ".svg"), plot =  biomarker_plot, 
            width = 6, height = 6, 
            units = "in"  # default

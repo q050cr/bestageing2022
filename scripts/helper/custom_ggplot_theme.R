@@ -1,8 +1,29 @@
 
 # my base ggplot theme
 
-require(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(thematic, lib.loc = "/mnt/users/reich/programs/R43/lib")
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
+
+# libs
+require(ggplot2, lib.loc = lib_path)
+require(thematic, lib.loc = lib_path)
 
 my_base_theme <- function() {
   # inspiration

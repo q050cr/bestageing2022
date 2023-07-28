@@ -6,32 +6,53 @@
 
 # script creates plots: "fig01vogel2013", "fig02vogel2013"
 
-.libPaths("/mnt/users/reich/programs/R43/lib")
+
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  .libPaths("/mnt/users/reich/programs/R43/lib")
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
 # dependencies ---------------------------------------------------------------
-library(readxl, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(janitor, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(glue, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(gt, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(tidyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(stringr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(purrr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(RColorBrewer, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggdist, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(gghalves, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggrepel, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(rstatix, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggthemes, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(ggpubr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(pROC, lib.loc = "/mnt/users/reich/programs/R43/lib")
-library(reshape2, lib.loc = "/mnt/users/reich/programs/R43/lib")
+library(readxl, lib.loc = lib_path)
+library(janitor, lib.loc = lib_path)
+library(glue, lib.loc = lib_path)
+library(gt, lib.loc = lib_path)
+library(dplyr, lib.loc = lib_path)
+library(tidyr, lib.loc = lib_path)
+library(stringr, lib.loc = lib_path)
+library(purrr, lib.loc = lib_path)
+library(dplyr, lib.loc = lib_path)
+library(ggplot2, lib.loc = lib_path)
+library(RColorBrewer, lib.loc = lib_path)
+library(ggdist, lib.loc = lib_path)
+library(gghalves, lib.loc = lib_path)
+library(ggrepel, lib.loc = lib_path)
+library(rstatix, lib.loc = lib_path)
+library(ggthemes, lib.loc = lib_path)
+library(ggpubr, lib.loc = lib_path)
+library(pROC, lib.loc = lib_path)
+library(reshape2, lib.loc = lib_path)
 conflicted::conflict_prefer("expand", "tidyr")
 conflicted::conflicts_prefer(dplyr::filter)
 conflicted::conflicts_prefer(janitor::make_clean_names)
 
-source(file = "/mnt/users/reich/rockerprojects/bestageing2022/scripts/helper/custom_ggplot_theme.R")
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
 SAVE.files <- TRUE
 runTests <- FALSE
@@ -50,10 +71,9 @@ all_combis <- tidyr::crossing(diseases, analysis) %>%
 # load data ---------------------------------------------------------------
 
 # MIRNA DAT
-model_data1 <- clean_names(readRDS(file = '/mnt/users/reich/BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
-
-load(file = "/mnt/users/reich/BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
-load(file = "/mnt/users/reich/BestAgeing/data/data.rda")  # "UKL-HD" n=731
+model_data1 <- clean_names(readRDS(file = glue('{data_path_BestAgeing}/data_new/model_data1.RDS')))  # has also multiclass col + diagnoses
+load(file = glue('{data_path_BestAgeing}/data/mirnas.rda'))  # "UKL-HD" n=765
+load(file = glue('{data_path_BestAgeing}/data/data.rda'))  # "UKL-HD" n=731
 all_mirnas <- clean_names(mirnas)
 names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
 mirnas_disease <- clean_names(data)
@@ -62,7 +82,7 @@ rm(data, mirnas)
 
 # load-mirnas-from_research
 # create vector of described mirnas
-load("/mnt/users/reich/BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
+load(glue("{data_path_BestAgeing}/data_research/fromR/researchMiRNAAccession.rda"))
 # check if all mirnas are named the same
 researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
   str_replace(pattern = "mi_r", replacement = "mir")
@@ -75,29 +95,26 @@ researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hs
 ###
 # load-metadat --
 ## DIAGNOSES DAT
-load(file = "/mnt/users/reich/BestAgeing/data/diagnoses_df.rda")
+load(glue("{data_path_BestAgeing}/data/diagnoses_df.rda"))
 
 ## SURVIVAL DAT
-survival_dat <- clean_names(readRDS(file = '/mnt/users/reich/rockerprojects/bestageing2022/data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
+survival_dat <- clean_names(readRDS(glue("{data_path_bestageing2022}/data/202211908_XMELD_abfrage_best_ageing.rds"))) # %>% 
 # original path "/mnt/users/reich/XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
 
 ## metadata from DB
 # https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
-load(file = "/mnt/users/reich/BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+load(glue("{data_path_BestAgeing}/data/clean_all_meta.rda"))  # created in "scripts/_prepare_metadata.R"
 clean_all_meta <- clean_all_meta %>% 
   mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
 # cath data? "hkdb"
 
 ## load all original metadat xlsx files again to make sure that also overlapped 
 #patients (e.g. dcm+cad) are in each group
-control_ids <- read_excel("/mnt/users/reich/BestAgeing/data/pheno_controls.xlsx") %>% 
+control_ids <- read_excel(glue("{data_path_BestAgeing}/data/pheno_controls.xlsx")) %>% 
   dplyr::pull(BestAgeingCode)
 
 # "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
 control_ids <- control_ids[control_ids != "UKL-HD-00318"]
-
-miRetrieve_alldiseases <- readRDS(file = "/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/top50mirnas_all_diseases.rds") # created in "scripts/miRetrieve/miRetrieve_topmirnas_all_diseases.R"
-length(unique(miRetrieve_alldiseases$Accession))
 
 ###
 # We apply both parametric t-tests and nonparametric U-tests ----------------
@@ -142,7 +159,7 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
     as_tibble()
   
   if (SAVE.files ==TRUE) {
-    filename.data01 <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{disease}/data01.rds")
+    filename.data01 <- glue("{data_path_bestageing2022}/output/de_results/{disease}/data01.rds")
     saveRDS(object = data01, file = filename.data01)
   }
   
@@ -228,9 +245,9 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
       mutate(sign_indicator = ifelse(padj < 0.05, "p.adj≤0.05", "n.s."))
     
     if (SAVE.files ==TRUE) {
-      filename.de.tibble <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{disease}/de_results.rds")
+      filename.de.tibble <- glue("{data_path_bestageing2022}/output/de_results/{disease}/de_results.rds")
       saveRDS(object = de.results, file = filename.de.tibble)
-      filename.logmedians <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{disease}/results_logmedians.rds")
+      filename.logmedians <- glue("{data_path_bestageing2022}/output/de_results/{disease}/results_logmedians.rds")
       saveRDS(object = results_logmedians, file = filename.logmedians)
     }
   }
@@ -243,11 +260,15 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
 
 rm(disease)  # errors in plot otherwise because colname and varname
 
+# changed from "rockerprojects/bestageing2022/data-literature/miRetrieve/top50mirnas_all_diseases.rds"
+miRetrieve_alldiseases <- readRDS(glue("{data_path_bestageing2022}/data-literature/miRetrieve/2023-07-27_top50mirnas_all_diseases_pmids_gpt.rds")) # created in "scripts/miRetrieve/miRetrieve_topmirnas_all_diseases.R"
+length(unique(miRetrieve_alldiseases$Accession))
+
 p2_listnew <- list()
 for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
-  data01 <- readRDS(file = glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{all_combis$diseases[mydisease]}/data01.rds"))
-  de_results <- readRDS(file = glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{all_combis$diseases[mydisease]}/de_results.rds"))
-  results_logmedians <- readRDS(file = glue("/mnt/users/reich/rockerprojects/bestageing2022/output/de_results/{all_combis$diseases[mydisease]}/results_logmedians.rds"))
+  data01 <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/data01.rds"))
+  de_results <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/de_results.rds"))
+  results_logmedians <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/results_logmedians.rds"))
   
   # figure 01 vogel plot ------------------------------------------------------
   p1.1 <- ggplot(results_logmedians, aes(x = logmedian.cont, y = logmedian.case)) +
@@ -256,7 +277,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
     geom_smooth(method = "lm", se = FALSE, color = "red", linetype = "dashed") +
     labs(x = glue("controls\n[log-median expression]"), y = glue("{toupper(all_combis$diseases[mydisease])} patients\n[log-median expression]")) +
     #theme_classic()
-    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
     scale_fill_manual(values = thematic::okabe_ito(6)) +
     my_base_theme()
   
@@ -267,7 +288,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
     geom_vline(xintercept = 0.05, color = "red", linetype = "dashed", size = 1) +
     labs(x = "t-test P-value\n(Benjamini-Hochberg corrected)", y = "Frequency") +
     #theme_classic()
-    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
     scale_fill_manual(values = thematic::okabe_ito(6)) +
     my_base_theme()
   
@@ -277,7 +298,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
     geom_vline(xintercept = 0.5, color = "red", linetype = "dashed", size = 1) +
     labs(x = "Univariate AUC", y = "Frequency") +
     #theme_classic()
-    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
     scale_fill_manual(values = thematic::okabe_ito(6)) +
     my_base_theme()
   
@@ -290,7 +311,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
     geom_vline(xintercept = auc_glm_baseline, color = "red", linetype = "dashed", size = 1) +
     labs(x = "Univariate AUC", y = "Frequency") +
     #theme_classic()
-    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
     scale_fill_manual(values = thematic::okabe_ito(6)) +
     my_base_theme()
   
@@ -303,8 +324,8 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
   fig1vogel2013b <- ggarrange(plot_row1, plot_row2b, nrow = 2, heights = c(2, 1))
   
   if (SAVE.files ==TRUE) {
-    fig1vogel2013_path <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig01vogel2013/{toupper(all_combis$diseases[mydisease])}_linear_correlation.svg")
-    fig1vogel2013_path_b <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig01vogel2013/{toupper(all_combis$diseases[mydisease])}_linear_correlation_b.svg")
+    fig1vogel2013_path <- glue("{data_path_bestageing2022}/output/plots/fig01vogel2013/{Sys.Date()}_{toupper(all_combis$diseases[mydisease])}_linear_correlation.svg")
+    fig1vogel2013_path_b <- glue("{data_path_bestageing2022}/output/plots/fig01vogel2013/{Sys.Date()}_{toupper(all_combis$diseases[mydisease])}_linear_correlation_b.svg")
     ggsave(filename = fig1vogel2013_path, plot = fig1vogel2013, 
            width = 8, height = 8, 
            units = "in"  # default
@@ -368,7 +389,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
     scale_y_continuous(breaks = seq(0, ceiling(max(rainbow_plot_dat$value)), by = 2), #limits = c(0, 1), expand = c(0, 0)
     )+
     # theme_classic()+
-    theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
     scale_fill_manual(values = thematic::okabe_ito(6), labels = c(toupper(all_combis$diseases[mydisease]), "Control")) + guides(fill=guide_legend(title=NULL), color="none") +
     scale_color_manual(values = thematic::okabe_ito(6)) +
     #scale_color_brewer(palette = "Set1") + # Choose a color palette
@@ -378,7 +399,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
   print(p2)
   p2_listnew[[mydisease]] <- p2
   if (SAVE.files ==TRUE) {
-    fig2_disease_vogel2013_path <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/{toupper(all_combis$diseases[mydisease])}_topdysregulatedmiRetrievemiR.svg")
+    fig2_disease_vogel2013_path <- glue("{data_path_bestageing2022}/output/plots/fig02vogel2013/{Sys.Date()}_{toupper(all_combis$diseases[mydisease])}_topdysregulatedmiRetrievemiR.svg")
     ggsave(filename = fig2_disease_vogel2013_path, plot = p2, 
            width = 8, height = 8, 
            units = "in"  # default
@@ -395,7 +416,7 @@ fig2vogel2013 <- ggarrange(plotlist = p2_listnew, ncol = 2, nrow = 2,
 # To print the plot
 print(fig2vogel2013)
 if (SAVE.files ==TRUE) {
-  fig2vogel2013_path <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/fig02vogel2013/arranged_topdysregulatedmiRetrievemiR.svg")
+  fig2vogel2013_path <- glue("{data_path_bestageing2022}/output/plots/fig02vogel2013/{Sys.Date()}_arranged_topdysregulatedmiRetrievemiR.svg")
   ggsave(filename = fig2vogel2013_path, plot = fig2vogel2013, 
          width = 12, height = 12, 
          units = "in"  # default

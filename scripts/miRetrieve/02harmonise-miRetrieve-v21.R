@@ -1,18 +1,37 @@
 
 
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+saveFILE <- TRUE
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
 version$version.string
 
 #  Load libraries
-require(miRetrieve, lib.loc = "/mnt/users/reich/programs/R43/lib"); packageVersion('miRetrieve')
-require(magrittr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Load magrittr for %>%
-require(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib") # Load ggplot2 for plotting
-require(glue, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(rcrossref, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Data wrangling
-require(tidyr, lib.loc = "/mnt/users/reich/programs/R43/lib") # Data wrangling
-require(miRBaseConverter, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(janitor, lib.loc = "/mnt/users/reich/programs/R43/lib")
-saveFILE <- TRUE
+require(miRetrieve, lib.loc = lib_path); packageVersion('miRetrieve')
+require(magrittr, lib.loc = lib_path) # Load magrittr for %>%
+require(ggplot2, lib.loc = lib_path) # Load ggplot2 for plotting
+require(glue, lib.loc = lib_path)
+require(rcrossref, lib.loc = lib_path)
+require(dplyr, lib.loc = lib_path) # Data wrangling
+require(tidyr, lib.loc = lib_path) # Data wrangling
+require(miRBaseConverter, lib.loc = lib_path)
+require(janitor, lib.loc = lib_path)
 
 # file oi created in "01miRetrieve_loop.R" and stored in "./data-literature/miRetrieve/ACS/2023-06-14-human-disease_biomarker.rds" 
 # for biomarker relevant miRNA and converted to target v21
@@ -23,7 +42,7 @@ saveFILE <- TRUE
 diseases <- c("ACS", "CAD", "DCM", "HFrEF")
 subset <- "-human" # changed to "-human" only, could also be changed to "-humantrials" only, or "" for full pubmed search !!!
 
-load("/mnt/users/reich/BestAgeing/data/data.rda")
+load(file = glue('{data_path_BestAgeing}/data/data.rda'))  # "UKL-HD" n=731
 # get some miRNAs from data's colnames
 miRNANames <- colnames(data[10:2558])
 length(miRNANames)
@@ -33,9 +52,9 @@ result1[1:10,]
 
 # Use the vectorized glue function to generate a vector of strings
 path2files <- glue::glue_data(.x = data.frame(diseases = diseases),
-                             "./data-literature/miRetrieve/{tolower(diseases)}/2023-06-13", {subset}, "-df_count_both.rds")
+                             "{data_path_bestageing2022}/data-literature/miRetrieve/{tolower(diseases)}/2023-07-27", {subset}, "-df_count_both.rds")  # changed from 2023-06-13
 path2files.bm <- glue::glue_data(.x = data.frame(diseases = diseases),
-                                 "./data-literature/miRetrieve/{tolower(diseases)}/2023-06-13", {subset}, "-disease_biomarker.rds")
+                                 "{data_path_bestageing2022}/data-literature/miRetrieve/{tolower(diseases)}/2023-07-27", {subset}, "-disease_biomarker.rds")
 
 for (mydata in seq_along(path2files)) {
   df_count_both <- readRDS(path2files[mydata])
@@ -62,12 +81,12 @@ for (mydata in seq_along(path2files)) {
   if (saveFILE == TRUE) {
     # df_count_both_accession
     saveRDS(object = df_count_both_accession, 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[mydata]}/{Sys.Date()}{subset}-df_count_both_with_accession.rds"))
-    write.csv2(x = df_count_both_accession, file = glue::glue("./data-literature/miRetrieve/{diseases[mydata]}/{Sys.Date()}{subset}-df_count_both_with_accession.csv"))
+            file = glue::glue("{data_path_bestageing2022}/data-literature/miRetrieve/{tolower(diseases[mydata])}/{Sys.Date()}{subset}-df_count_both_with_accession.rds"))
+    #write.csv2(x = df_count_both_accession, file = glue::glue("{data_path_bestageing2022}/data-literature/miRetrieve/{diseases[mydata]}/{Sys.Date()}{subset}-df_count_both_with_accession.csv"))
     # disease_biomarker_with_accession
     saveRDS(object = disease_biomarker_accession, 
-            file = glue::glue("./data-literature/miRetrieve/{diseases[mydata]}/{Sys.Date()}{subset}-disease_biomarker_with_accession.rds"))
-    write.csv2(x = disease_biomarker_accession, file = glue::glue("./data-literature/miRetrieve/{diseases[mydata]}/{Sys.Date()}{subset}-disease_biomarker_with_accession.csv"))
+            file = glue::glue("{data_path_bestageing2022}/data-literature/miRetrieve/{tolower(diseases[mydata])}/{Sys.Date()}{subset}-disease_biomarker_with_accession.rds"))
+    #write.csv2(x = disease_biomarker_accession, file = glue::glue("{data_path_bestageing2022}/data-literature/miRetrieve/{diseases[mydata]}/{Sys.Date()}{subset}-disease_biomarker_with_accession.csv"))
   }
   
   ## manually match to most frequent version -----------------------------------
