@@ -4,16 +4,38 @@
 
 # creates file `clean_all_meta` in "/mnt/users/reich/BestAgeing/output_new/EDA/clean_all_meta.rds"
 
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
 
-require(readxl, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(openxlsx, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(skimr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(tableone, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(gt, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(kableExtra, lib.loc = "/mnt/users/reich/programs/R43/lib")
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
 
-source("/mnt/users/reich/BestAgeing/scripts/_prepare_metadata.R")
+
+
+require(readxl, lib.loc = lib_path)
+require(openxlsx, lib.loc = lib_path)
+require(glue, lib.loc = lib_path)
+require(dplyr, lib.loc = lib_path)
+require(skimr, lib.loc = lib_path)
+require(tableone, lib.loc = lib_path)
+require(gt, lib.loc = lib_path)
+require(kableExtra, lib.loc = lib_path)
+
+source(glue("{data_path_BestAgeing}/scripts/_prepare_metadata.R"))
 
 # get overview ------------------------------------------------------------
 skimr::skim(clean_all_meta)
@@ -21,7 +43,7 @@ colnames(clean_all_meta)
 # after inspecting NAs select reasonable cols to do further exploration
 
 clean_all_meta <- clean_all_meta %>% select(
-  disease, sex, 
+  patID, disease, sex, 
   age, weight, height, bmi,
   smoke, dm, 
   hypertension, dyslipo, familiyhist,
@@ -73,44 +95,6 @@ clean_all_meta <- clean_all_meta %>% select(
 
 dput(names(clean_all_meta)) #INTERESTING
 
-# saveRDS(clean_all_meta, file = "/mnt/users/reich/BestAgeing/output_new/EDA/clean_all_meta.rds")
+# saveRDS(clean_all_meta, file = glue("{data_path_BestAgeing}/output_new/EDA/clean_all_meta.rds"))
 
-myVars <- c("disease", "sex", "age", "weight", "height", "bmi", "smoke", 
-            "dm", "hypertension", "dyslipo", "familiyhist", 
-            "echo_ef", "echo_lv_dil_henry", "echo_lvedd", 
-            "crea", "bnp", "troponinI", "troponinT", "hemo", "wbc", "cholesterol", 
-            "hdl", "ldl")
-catVars <- c("disease", "sex", "smoke", 
-             "dm", "hypertension", "dyslipo", "familiyhist")
 
-nonnormal_features <- c("bmi", "crea", "bnp", "troponinI", "troponinT", "hemo", "wbc")
-
-#tableone::CreateTableOne(data=clean_all_meta, vars = myVars, factorVars = catVars)
-#tableone <-  tableone::CreateTableOne(data=clean_all_meta, vars = myVars, factorVars = catVars)
-
-# print(tableone, nonnormal = nonnormal_features, showAllLevels = TRUE, formatOptions = list(big.mark = ","))
-
-# add strata
-tableone_strata <- tableone::CreateTableOne(data=clean_all_meta, 
-                                            vars = myVars[-1], # remove disease from vars
-                                            factorVars = catVars[-1], 
-                                            strata="disease"
-                                            )
-kableone(tableone_strata) %>% 
-  kable_classic_2(full_width = F)
-
-# save
-tab1Mat <- print(tableone_strata, nonnormal=nonnormal_features, quote=FALSE, noSpaces=TRUE, printToggle=FALSE)
-tab1Mat
-
-## Save to a CSV file and prepare it for final use ;)
-write.csv2(tab1Mat, file = "/mnt/users/reich/rockerprojects/bestageing2022/output/tables/tableone/table1strata_disease.csv")
-#openxlsx::write.xlsx(tab1Mat, file = "/mnt/users/reich/rockerprojects/bestageing2022/output/tables/tableone/table1strata_disease.xlsx")
-
-# to gt
-
-tableone_strata_gt <- as.data.frame(print(tableone_strata, nonnormal=nonnormal_features, quote=FALSE, noSpaces=TRUE))
-tableone_strata_gt$variable <- rownames(tableone_strata_gt)
-rownames(tableone_strata_gt) <- NULL
-gt_table <- gt(tableone_strata_gt %>% dplyr::select(variable, everything()))
-gt_table

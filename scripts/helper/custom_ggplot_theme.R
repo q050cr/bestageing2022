@@ -6,7 +6,7 @@ system_name <- Sys.info()["nodename"]
 mount_filesystem <- TRUE
 
 # Define library and data paths based on system
-if (system_name == "MacBook-Pro-CR-2065.local") {
+if (system_name == "MacBook-Pro-CR-2065.local" | system_name == "dhcp172-619.laptop-zim.uni-heidelberg.de") {
   lib_path <- .libPaths()[1]
   data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
   data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
@@ -49,6 +49,6 @@ my_base_theme <- function() {
 
 
 # add this to plot +
-#  theme_minimal(base_size = 16, base_family = 'Source Sans Pro')+
+#  theme_minimal(base_size = 16, base_family = 'Arial')+
 #  scale_fill_manual(values = thematic::okabe_ito(6)) +
 #  my_base_theme()

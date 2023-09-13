@@ -5,73 +5,86 @@
 
 # scripts saves tuned models (not finalized) to: "./output/tuning_results/"
 
-.libPaths("/mnt/users/reich/programs/R43/lib")
-pkg_vector <- c("broom", "dials", "infer", "modeldata", "parsnip", "recipes",
-                "rsample", "tibble", "tune", "workflows", "workflowsets", 
-                "yardstick", "tidymodels")
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = system_name, "laptop-zim.uni-heidelberg.de")) {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  .libPaths("/mnt/users/reich/programs/R43/lib")
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
 
-lib_path <- "/mnt/users/reich/programs/R43/lib"
 for (pkg in pkg_vector){
   if (!require(pkg, character.only = TRUE, lib.loc = lib_path)){
     install.packages(pkg, lib = lib_path)
     require(pkg, character.only = TRUE, lib.loc = lib_path)
   }
 }
+
+
+
 # dependencies ---------------------------------------------------------------
-require(readxl, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(glue, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(janitor, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(dplyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(tidyr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(stringr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(purrr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(ggplot2, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(svglite, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(ggrepel, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(ggthemes, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(skimr, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(tableone, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(pROC, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(dials, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(infer, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(modeldata, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(tidymodels, lib.loc = "/mnt/users/reich/programs/R43/lib")
+require(readxl, lib.loc = lib_path)
+require(glue, lib.loc = lib_path)
+require(janitor, lib.loc = lib_path)
+require(dplyr, lib.loc = lib_path)
+require(tidyr, lib.loc = lib_path)
+require(stringr, lib.loc = lib_path)
+require(purrr, lib.loc = lib_path)
+require(ggplot2, lib.loc = lib_path)
+require(svglite, lib.loc = lib_path)
+require(ggrepel, lib.loc = lib_path)
+require(ggthemes, lib.loc = lib_path)
+require(skimr, lib.loc = lib_path)
+require(tableone, lib.loc = lib_path)
+require(pROC, lib.loc = lib_path)
+require(dials, lib.loc = lib_path)
+require(infer, lib.loc = lib_path)
+require(modeldata, lib.loc = lib_path)
+require(tidymodels, lib.loc = lib_path)
 options(tidymodels.dark = TRUE)
 ## used within tidymodels
 # "kknn", "glmnet", "ranger", "naivebayes", "kernlab", "xgboost", "nnet"
-require(kknn, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(glmnet, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(ranger, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(naivebayes, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(kernlab, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(xgboost, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(nnet, lib.loc = "/mnt/users/reich/programs/R43/lib")
-#library(keras, lib.loc = "/mnt/users/reich/programs/R43/lib")  # ## ERRORS with keras
+require(kknn, lib.loc = lib_path)
+require(glmnet, lib.loc = lib_path)
+require(ranger, lib.loc = lib_path)
+require(naivebayes, lib.loc = lib_path)
+require(kernlab, lib.loc = lib_path)
+require(xgboost, lib.loc = lib_path)
+require(nnet, lib.loc = lib_path)
+#library(keras, lib.loc = lib_path)  # ## ERRORS with keras
 # Fold2: preprocessor 1/1, model 100/100:
 # Error: Python shared library not found, Python bindings not loaded.
 # Use reticulate::install_miniconda() if you'd like to install a Miniconda Python environment.
-#library(reticulate, lib.loc = "/mnt/users/reich/programs/R43/lib")
+#library(reticulate, lib.loc = lib_path)
 #reticulate::install_miniconda(path = "/mnt/users/reich/programs/miniconda/", update = TRUE, force = FALSE)
 #keras::install_keras(conda = "/mnt/users/reich/miniconda/bin/conda", version = "default")
 # reticulate::conda_list()
-reticulate::use_python("/mnt/users/reich/programs/miniconda/bin/python3", required = TRUE)
-Sys.setenv(RETICULATE_PYTHON = "/mnt/users/reich/programs/miniconda/bin/python3")
-require(discrim, lib.loc = "/mnt/users/reich/programs/R43/lib")  # naive bayes
-require(finetune, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(vetiver, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(workflowsets, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(baguette, lib.loc = "/mnt/users/reich/programs/R43/lib")
-require(rules, lib.loc = "/mnt/users/reich/programs/R43/lib")
+# reticulate::use_python("/mnt/users/reich/programs/miniconda/bin/python3", required = TRUE)
+# Sys.setenv(RETICULATE_PYTHON = "/mnt/users/reich/programs/miniconda/bin/python3")
+require(discrim, lib.loc = lib_path)  # naive bayes
+require(finetune, lib.loc = lib_path)
+require(vetiver, lib.loc = lib_path)
+require(workflowsets, lib.loc = lib_path)
+require(baguette, lib.loc = lib_path)
+require(rules, lib.loc = lib_path)
 tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 
 
 cores <- parallel::detectCores()
 if (!grepl("mingw32", R.Version()$platform)) {
-  library(doMC, lib.loc = "/mnt/users/reich/programs/R43/lib")
+  library(doMC, lib.loc = lib_path)
   registerDoMC(cores = cores/2)
 } else {
-  library(doParallel, lib.loc = "/mnt/users/reich/programs/R43/lib")
+  library(doParallel, lib.loc = lib_path)
   cl <- makePSOCKcluster(cores/2)
   registerDoParallel(cl)
 }

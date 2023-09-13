@@ -35,6 +35,7 @@ library(purrr, lib.loc = lib_path)
 library(dplyr, lib.loc = lib_path)
 library(broom, lib.loc = lib_path)
 library(ggplot2, lib.loc = lib_path)
+library(fmsb, lib.loc = lib_path)  # radar plot
 library(RColorBrewer, lib.loc = lib_path)
 library(ggdist, lib.loc = lib_path)
 library(gghalves, lib.loc = lib_path)
@@ -146,10 +147,14 @@ nested_data %>%
 
 nested_data <- nested_data %>% 
   mutate(results_lm_cor = list(NULL), 
-         results_interaction_term = list(NULL))
+         results_interaction_term = list(NULL), 
+         plots_lm_scatter = list(NULL), 
+         plots_interaction_scatter = list(NULL)
+         )
 
 for(mynest in 1:nrow(nested_data)) {
   result_list <- miRNA_vector %>% 
+    # x ... miRNA from vector
     map(.f = function(x) summary(lm(data = nested_data$data[[mynest]], as.formula(paste0(x, "~ I(age/10)")) )), .progress = TRUE) %>% 
     set_names(nm = miRNA_vector)
   
@@ -169,11 +174,11 @@ for(mynest in 1:nrow(nested_data)) {
   nested_data$results_lm_cor[[mynest]] <- results_tibble_tmp
 }
 
-## outline: get significant miRNAs, make scatter plots like in BM publication. make strata 40-50y, 50-60y ... -> spider plot for mean expression of each miRNA
+# outline: get significant miRNAs, make scatter plots like in BM publication. make strata 40-50y, 50-60y ... -> spider plot for mean expression of each miRNA
 
 
 
-# Interaction Term ------------------------------------------------------------
+# Interaction Term each biomarker~I(Age/10):Diseases ------------------------------------------------------------
 # In a regression model, include an interaction term between age and disease status. 
 # This would allow you to see if the effect of age on biomarker expression differs by disease status.
 
@@ -203,6 +208,136 @@ for(mydisease in seq_along(names(mirnas_age_analysis)[6:9]) ){  # checked that v
 # increase in Group A, decrease in Group B, and stay the same in the control group (Group C). It indicates that the dynamics of 
 # microRNA X expression as a function of age differs depending on the disease group. Therefore, both age and disease type must 
 # be considered together when studying the expression of microRNA X."
+
+## plots -------------------------------------------------------------------
+labels_interaction_plot <- c("Control", "ACS", "CAD", "DCM", "HFrEF")
+
+for(mynest in 1:nrow(nested_data)){
+  # A) lm scatter plot
+  mirnas_age_analysis_lm_significant <- nested_data$results_lm_cor[[mynest]] %>% 
+    filter(padj_age < 0.05) %>% 
+    pull(miRNA)
+  
+  if(length(mirnas_age_analysis_lm_significant) > 0) {  # could also use trycatch, but throws error Error in `pivot_longer()`:! `cols` must select at least one column.
+    df_long <- nested_data$data[[mynest]] %>% 
+      select(age, all_of(mirnas_age_analysis_lm_significant)) %>% 
+      pivot_longer(cols = -age, names_to = "miRNA", values_to = "log2expression") %>% 
+      mutate(miRNA = str_replace_all(miRNA, "_", "-"))
+    
+    lm_scatter_plot <- ggplot(df_long, aes(x = age, y = log2expression)) + 
+      geom_point(alpha=0.3, shape=16) +
+      geom_smooth(method = "lm", se = TRUE, color = "red") +
+      facet_wrap(~ miRNA, scales = "free", nrow=5) +
+      labs(x = "Age", y = expression(paste("log"[2], " expression"))) +
+      theme_minimal(base_size = 16, base_family = 'Arial')+
+      scale_fill_manual(values = thematic::okabe_ito(6)) +
+      my_base_theme()
+    # store plot
+    nested_data$plots_lm_scatter[[mynest]] <- lm_scatter_plot
+    
+    height_lm_scatter_plot <- ifelse(as.character(nested_data$multiclass[mynest]) != "control", 10, 50)  # 10*10  .. does also not look good
+    
+    if (SAVE.files ==TRUE) {
+      path_lm_scatter_plot <- glue("{data_path_bestageing2022}/output/plots/age_analysis/stratified_lm/{Sys.Date()}_{nested_data$multiclass[mynest]}_lm_scatter_significant_wrap.svg")
+      ggsave(filename = path_lm_scatter_plot, plot = lm_scatter_plot, 
+             width = 10, height = height_lm_scatter_plot, limitsize = FALSE,
+             units = "in"  # default
+      )
+    }
+    
+    # radar plots -----------------------------------------------------------
+    df_radar <- nested_data$data[[mynest]] %>% 
+      select(age, all_of(mirnas_age_analysis_lm_significant)) %>% 
+      drop_na(age) %>% 
+      mutate(age_group = cut(age, breaks = c(0, 50, 70, Inf), labels = c("50-", "50-70", "70+")))
+    
+    # Calculate the mean of each miRNA for each age group
+    df_mean <- df_radar %>% 
+      group_by(age_group) %>% 
+      summarise(across(all_of(mirnas_age_analysis_lm_significant), mean, na.rm = TRUE))
+    # Create a dataframe suitable for radarchart()
+    df_mean <- df_mean %>% as.tibble()
+    ## The first row needs to be the max values for the chart
+    #max_values <- apply(df_mean[-1], 2, max)
+    #df_radar_prepared_plot <- rbind(max_values, df_mean)
+    
+    # dotchart -----------------------------------------------------------
+    # https://www.datanovia.com/en/blog/beautiful-radar-chart-in-r-using-fmsb-and-ggplot-packages/
+    df_dotchart_age_bins <- df_mean %>% 
+      pivot_longer(cols = -age_group, names_to = "miRNA", values_to = "log2expression") %>% 
+      mutate(miRNA = str_replace_all(miRNA, "_", "-"))
+    agegroup_dotchart_plot <- ggdotchart(data = df_dotchart_age_bins, x = "miRNA", y = "log2expression", group="age_group", color="age_group", 
+               add = "segment", position = position_dodge(0.3), 
+               dot.size = 3,
+               sorting = "descending",
+               rotate = TRUE) +
+      labs(color="Age Group")+
+      xlab(NULL) +
+      ylab("Mean log 2 expression")+
+      scale_y_log10() +
+      theme_minimal(base_size = 16, base_family = 'Arial')+
+      scale_color_manual(values = thematic::okabe_ito(6)) +
+      #theme(axis.text.y = element_text(angle = 45, hjust = 1)) +
+      my_base_theme()
+    
+    if (SAVE.files ==TRUE) {
+      path_agegroup_dotchart_plot <- glue("{data_path_bestageing2022}/output/plots/age_analysis/dotchart_agegroups/{Sys.Date()}_{nested_data$multiclass[mynest]}_agegroup_dotchart_plot_significant.svg")
+      ggsave(filename = path_agegroup_dotchart_plot, plot = agegroup_dotchart_plot, 
+             width = 10, height = 14, limitsize = FALSE,
+             units = "in"  # default
+      )
+    }
+    
+  }
+
+  # end of lm scatter plot analysis
+  
+  # B) interaction plot
+  if(nested_data$multiclass[mynest] != "control") {
+    # run interaction plots
+    colname_disease <- as.character(nested_data$multiclass[mynest])  # convert factor variable to string
+    mirnas_interaction_age_analysis <- mirnas_age_analysis %>% 
+      filter(control == 1 | !!rlang::sym(colname_disease) == 1)
+    
+    # get significant miRNAs
+    mirnas_ageXdisease_int_analysis_lm__significant <- nested_data$results_interaction_term[[mynest]] %>% 
+      filter(padj_ageXdisease < 0.05) %>% 
+      pull(miRNA)
+    
+    if(length(mirnas_ageXdisease_int_analysis_lm__significant) > 0) {
+      df_long_interaction <- mirnas_interaction_age_analysis %>% 
+        select(age, all_of(colname_disease), all_of(mirnas_ageXdisease_int_analysis_lm__significant)) %>% 
+        pivot_longer(cols = -c(age, all_of(colname_disease)), names_to = "miRNA", values_to = "log2expression") %>% 
+        mutate(!!colname_disease := recode_factor(!!sym(colname_disease), "0" = "Control", "1" = labels_interaction_plot[mynest])) %>% 
+        mutate(miRNA = str_replace_all(miRNA, "_", "-"))
+      
+      lm_interaction_scatter_plot <- ggplot(df_long_interaction, aes(x=age, y=log2expression, color=!!sym(colname_disease))) + 
+        geom_point(alpha=0.3, shape=16) +
+        geom_smooth(method="lm", se=TRUE) + 
+        facet_wrap(~ miRNA, scales = "free") +
+        theme_minimal() +
+        labs(title = NULL, # "Interaction of age and disease on biomarker expression",
+             x = "Age",
+             y = expression(paste("log"[2], " expression")),
+             color = NULL) +
+        theme_minimal(base_size = 16, base_family = 'Arial')+
+        scale_color_manual(values = thematic::okabe_ito(6)) +
+        my_base_theme()
+      #theme(legend.position="bottom")
+      # store plot
+      nested_data$plots_interaction_scatter[[mynest]] <- lm_interaction_scatter_plot
+      if (SAVE.files ==TRUE) {
+        path_lm_interaction_scatter_plot <- glue("{data_path_bestageing2022}/output/plots/age_analysis/interaction_ageXdisease/{Sys.Date()}_{nested_data$multiclass[mynest]}_lm_scatter_significant_wrap.svg")
+        ggsave(filename = path_lm_interaction_scatter_plot, plot = lm_interaction_scatter_plot, 
+               width = 10, height = 10, 
+               units = "in"  # default
+        )
+      }
+    }
+    # end of interaction analysis
+  }
+  # end of loop
+}
 
 
 
