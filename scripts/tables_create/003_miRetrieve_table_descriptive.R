@@ -29,10 +29,12 @@ require(tidyr, lib.loc = lib_path)
 require(stringr, lib.loc = lib_path)
 require(purrr, lib.loc = lib_path)
 require(dplyr, lib.loc = lib_path)
+require(e1071, lib.loc = lib_path)
 require(ggplot2, lib.loc = lib_path)
-library(pROC, lib.loc = lib_path)
-library(htmltools, lib.loc = lib_path)
-library(webshot, lib.loc = lib_path)
+require(ggridges, lib.loc = lib_path)
+require(pROC, lib.loc = lib_path)
+require(htmltools, lib.loc = lib_path)
+require(webshot, lib.loc = lib_path)
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
@@ -77,6 +79,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
       theme(axis.text = element_blank(), axis.ticks = element_blank())  # remove axis text and ticks
   }
   
+  # univariate AUCs
   ggrocplot_table <- function(plotdata, miRNA_name) {
     roc_obj <- suppressMessages(roc(data01[["disease"]], data01[[miRNA_name]]))
     roc_df <- data.frame(
@@ -102,14 +105,14 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
     arrange(desc(auc)) 
   
   chosen_mirnas <- filtered4disease$TargetName
-  plot_list_boxplots <- purrr::map(.x = chosen_mirnas, .f = ~ ggboxplot_table(plotdata = data01, miRNA_name = .x, plot_disease = disease) )
+  # plot_list_boxplots <- purrr::map(.x = chosen_mirnas, .f = ~ ggboxplot_table(plotdata = data01, miRNA_name = .x, plot_disease = disease) )
   plot_list_rocaucs <- purrr::map(.x = chosen_mirnas, .f = ~ ggrocplot_table(plotdata = data01, miRNA_name = .x) )
   
   # with mutating the plots to existing df always computer hanged
   prepare_gt_dat_tmp <- tibble(TargetName = chosen_mirnas,
                                #boxplots = plot_list_boxplots,   # looads of space; size in MB: object.size(prepare_gt_dat_tmp) / 1024^2
                                rocaucs = plot_list_rocaucs) %>% 
-    left_join(filtered4disease %>% select(Topic, TargetName, Accession, Biomarker_score, miRetrieve, padj, padj.glm, sign_indicator, PMIDs), 
+    left_join(filtered4disease %>% select(Topic, TargetName, Accession, Biomarker_score, miRetrieve, max_value, padj, padj.glm, sign_indicator, auc, PMIDs), 
               by= c("TargetName"="TargetName"))
   
   prepare_gt_dat <- bind_rows(prepare_gt_dat, prepare_gt_dat_tmp)
@@ -124,7 +127,25 @@ custom_order <- c("Acute Coronary Syndrome", "Coronary Artery Disease", "Dilated
 prepare_gt_dat <- prepare_gt_dat[-1, ] 
 # for gt to work the column in the tibble can be NA, but the plots should be stored in a list (which we can index from the old tibble)
 prepare_gt_dat1 <- prepare_gt_dat %>% select(-boxplots)
-prepare_gt_dat1 <- prepare_gt_dat %>% mutate(rocaucs=NA)
+prepare_gt_dat1 <- prepare_gt_dat1 %>% mutate(rocaucs=NA)
+
+gt_plot_list <- prepare_gt_dat %>% 
+  mutate(
+    Topic = case_when(
+      Topic == "ACS" ~ "Acute Coronary Syndrome",
+      Topic == "CAD" ~ "Coronary Artery Disease",
+      Topic == "DCM" ~ "Dilated Cardiomyopathy",
+      Topic == "HFrEF" ~ "Heart Failure With Reduced Ejection Fraction",
+    ),
+    Topic = factor(Topic, levels = (custom_order))  # consistent with the behavior of ggplot2, where factor levels are plotted in reverse order to match the standard layout of a Cartesian coordinate system
+  ) %>% 
+  group_by(Topic) %>% 
+  # THIS ALLOWS THE ORDERING OF THE SPANNERS! 
+  arrange(Topic, desc(auc), desc(max_value)) %>% 
+  slice(1:5) %>%   # if sliced list of plots MUST be adapted !!done here
+  select(Topic, TargetName, rocaucs, auc)
+  
+  
 
 prepare_gt_dat1 %>% 
   mutate(
@@ -147,13 +168,18 @@ prepare_gt_dat1 %>%
   mutate(
     PMIDs = paste0("<a href='http://www.ncbi.nlm.nih.gov/pubmed/",
                    PMIDs,
-                   "' style='font-size:80%;'>",
+                   "' style='font-size:60%;'>",
                    PMIDs,
                    "</a>")
   ) %>% 
   group_by(Topic) %>% 
   # THIS ALLOWS THE ORDERING OF THE SPANNERS! 
-  arrange(Topic, desc(Biomarker_score)) %>% 
+  arrange(Topic, desc(auc), desc(max_value)) %>% 
+  slice(1:5) %>%   # only top 5
+  relocate(
+    max_value, .after = Accession
+  ) %>% 
+  select(-c(auc, Biomarker_score, miRetrieve, padj.glm)) %>% 
   
   ## start gt -------------------------------------------------------------
   gt(groupname_col = "Topic") %>% 
@@ -169,10 +195,10 @@ prepare_gt_dat1 %>%
     #Topic = "Topic",
     TargetName = "microRNA",
     Accession = "Accession",
-    Biomarker_score = "Biomarker Score",
-    miRetrieve = "miRetrieve",
-    padj = "p-adj (BH)",
-    padj.glm = "p-adj-glm (BH)",
+    max_value = "Biomarker Score",
+    #miRetrieve = "miRetrieve",
+    padj = "p-adj (Holm)",
+    #padj.glm = "p-adj-glm (BH)",
     sign_indicator = "Significance Indicator",
     rocaucs = "ROC AUCs", 
     PMIDs = "PMIDs"
@@ -180,13 +206,13 @@ prepare_gt_dat1 %>%
   tab_spanner(
     label = "Performance",
     columns = c(
-      Biomarker_score, miRetrieve, padj, padj.glm, sign_indicator, rocaucs
+      max_value, padj,sign_indicator, rocaucs
     )
   ) %>% 
   #tab_spanner_delim(delim = "_") %>%
   data_color(
-    columns = c(Biomarker_score),
-    colors = scales::col_numeric(
+    columns = c(max_value),
+    fn = scales::col_numeric(
       palette = c(thematic::okabe_ito(6)[1], thematic::okabe_ito(6)[2]),
       domain = NULL
     )
@@ -194,8 +220,10 @@ prepare_gt_dat1 %>%
   text_transform(
     locations = cells_body(columns = rocaucs),
     fn = function(x) {
-      prepare_gt_dat$rocaucs |>
-        ggplot_image(height = px(100))
+      gt_plot_list$rocaucs |>   # cave if ordering changed!!
+        ggplot_image(height = px(20))  # had 100 before
+      #prepare_gt_dat$rocaucs |>
+      #  ggplot_image(height = px(100))
     }
   ) %>% 
   #fmt_number(
@@ -239,7 +267,7 @@ prepare_gt_dat1 %>%
 gt_literature_miRetrieve
 
 if(SAVE.files == TRUE) {
-  filename_gt_miretrieve <- glue("{data_path_bestageing2022}/output/tables/literature_miRetrieve/{Sys.Date()}_table_miRetrieve_miRNA")
+  filename_gt_miretrieve <- glue("{data_path_bestageing2022}/output/tables/literature_miRetrieve/{Sys.Date()}_table_miRetrieve_miRNA_top5")
   gtsave(data = gt_literature_miRetrieve, glue("{filename_gt_miretrieve}.html")) 
   # gtsave(data = gt_literature_miRetrieve, glue("{filename_gt_miretrieve}.docx")) 
 }
@@ -259,3 +287,122 @@ gt_literature_miRetrieve %>%
 
 browsable(as.tags(gt_literature_miRetrieve %>% as_raw_html()))
 
+
+# descriptive top 5 -----------------------------------------------------------
+
+prepare_gt_dat1 %>% 
+  mutate(
+    TargetName = str_replace_all(TargetName, "_", "-"), # replace underscores with hyphens
+    padj = round(padj, 3), # round to 3 decimal places
+    padj = ifelse(padj == 0, "≤ 0.001", as.character(padj)),
+    padj.glm = round(padj.glm, 3), # round to 3 decimal places
+    padj.glm = ifelse(padj.glm == 0, "≤ 0.001", as.character(padj.glm))
+  ) %>% 
+  mutate(
+    Topic = case_when(
+      Topic == "ACS" ~ "Acute Coronary Syndrome",
+      Topic == "CAD" ~ "Coronary Artery Disease",
+      Topic == "DCM" ~ "Dilated Cardiomyopathy",
+      Topic == "HFrEF" ~ "Heart Failure With Reduced Ejection Fraction",
+    ),
+    Topic = factor(Topic, levels = (custom_order))  # consistent with the behavior of ggplot2, where factor levels are plotted in reverse order to match the standard layout of a Cartesian coordinate system
+  ) %>% 
+  
+  mutate(
+    PMIDs = paste0("<a href='http://www.ncbi.nlm.nih.gov/pubmed/",
+                   PMIDs,
+                   "' style='font-size:60%;'>",
+                   PMIDs,
+                   "</a>")
+  ) %>% 
+  group_by(Topic) %>% 
+  # THIS ALLOWS THE ORDERING OF THE SPANNERS! 
+  arrange(Topic, desc(auc), desc(max_value)) %>% 
+  #slice(1:5) %>%   # only top 5
+  relocate(
+    max_value, .after = Accession
+  ) -> describe_mirna_lit
+
+describe_mirna_lit %>% 
+  select(sign_indicator) %>% 
+  table() %>% 
+  as_tibble() -> sign_count_df
+sign_count_df
+
+## barplot significance -----------------
+
+ggplot(sign_count_df, aes(x = Topic, y = n, fill = sign_indicator)) +
+  geom_bar(stat = "identity", position = "dodge", alpha=0.8) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_discrete(labels = c("ACS", "CAD", "DCM", "HFrEF")) +
+  labs(
+    x = NULL,
+    y = "Count",
+    title = NULL,
+    subtitle = NULL, 
+    fill = NULL
+  )+
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(6)) +
+  scale_color_manual(values = thematic::okabe_ito(6))  -> sign_indicator_barplot
+
+sign_indicator_barplot
+
+# AUC distribution
+describe_mirna_lit %>% 
+  select(auc) -> auc_distribution_topic_df
+
+# Custom labels for the legend
+custom_labels <- c(
+  "Acute Coronary Syndrome" = "ACS",
+  "Coronary Artery Disease" = "CAD",
+  "Dilated Cardiomyopathy" = "DCM",
+  "Heart Failure With Reduced Ejection Fraction" = "HFrEF"
+)
+
+## densities auc -----------------
+
+ggplot(auc_distribution_topic_df, aes(x = auc, fill = Topic)) +
+  geom_density(alpha = 0.5) +
+  labs(
+    x = "AUC",
+    y = "Density",
+    title = "Density Plot of AUC Values",
+    subtitle = "Grouped by Topic"
+  ) +
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(6), labels = custom_labels) +
+  scale_color_manual(values = thematic::okabe_ito(6)) 
+
+ggplot(auc_distribution_topic_df, aes(x = auc, y = Topic, fill = Topic)) +
+  geom_density_ridges(alpha = 0.7) +
+  labs(
+    x = "Univariate AUC",
+    y = NULL,
+    title = NULL,  # "Density Ridges Plot of AUC Values"
+    subtitle = NULL,
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(6), labels = custom_labels) +
+  scale_color_manual(values = thematic::okabe_ito(6)) +
+  theme(axis.text.y = element_blank()) -> density_ridges_plot
+
+density_ridges_plot
+
+## arranged final plot with venn!!  -----------------
+
+arranged_plot <- ggarrange(sign_indicator_barplot, density_ridges_plot, nrow = 2, align = "hv", labels = c("A", "B"))
+
+# venn plot high from 001_model_de_analysis.R
+venn_plot_high <- readRDS(glue("{data_path_bestageing2022}/output/plots/venn_dia/venn_de_mirnas_shared.rds"))
+arranged_plot <- ggarrange(arranged_plot, venn_plot_high, nrow = 1, ncol = 2, align = "hv", labels = c("", "C"))
+arranged_plot
+
+if(SAVE.files == TRUE) {
+  filename_plots_top50_pval_auc <- glue("{data_path_bestageing2022}/output/plots/miRetrieve/stats/top50_miRetrieve_stats_sign_aucs.svg")
+  ggsave(filename = filename_plots_top50_pval_auc, plot =  arranged_plot, 
+         width = 10, height = 8, 
+         units = "in"  # default
+  )
+}

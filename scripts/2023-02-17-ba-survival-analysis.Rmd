@@ -23,8 +23,30 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
+miRetrieveBiomarker <- TRUE
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  .libPaths("/mnt/users/reich/programs/R43/lib")
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
 knitr::opts_chunk$set(echo = FALSE)
-figurespath <- paste0("../reports/", 
+figurespath <- paste0(data_path_bestageing2022, "/reports/", 
                       format(Sys.time(), "%Y%m%d"), '_ba_survival_figures/')
 knitr::opts_chunk$set(fig.path = figurespath)
 
@@ -35,30 +57,33 @@ caching <- FALSE
 ![AG Meder](../../img/meder_presentation_heart.png)
 
 ```{r dependencies}
-library(readxl, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(janitor, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(dplyr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(tidyr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(forcats, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(stringr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(purrr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(ggplot2, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(ggrepel, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(ggthemes, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(kableExtra, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(skimr, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(tableone, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(survival, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(survminer, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(gginnards, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(ggsci, lib.loc = "/mnt/users/reich/programs/R/lib")
-library(lubridate, lib.loc = "/mnt/users/reich/programs/R/lib")
-source("helper/ggsurvplot_custom.R")
+library(readxl, lib.loc = lib_path)
+library(glue, lib.loc = lib_path)
+library(janitor, lib.loc = lib_path)
+library(dplyr, lib.loc = lib_path)
+library(tidyr, lib.loc = lib_path)
+library(forcats, lib.loc = lib_path)
+library(stringr, lib.loc = lib_path)
+library(purrr, lib.loc = lib_path)
+library(ggplot2, lib.loc = lib_path)
+library(ggrepel, lib.loc = lib_path)
+library(ggthemes, lib.loc = lib_path)
+library(kableExtra, lib.loc = lib_path)
+library(skimr, lib.loc = lib_path)
+library(tableone, lib.loc = lib_path)
+library(tidymodels, lib.loc = lib_path)
+library(survival, lib.loc = lib_path)
+library(survminer, lib.loc = lib_path)
+library(gginnards, lib.loc = lib_path)
+library(ggsci, lib.loc = lib_path)
+library(lubridate, lib.loc = lib_path)
+source(glue("{data_path_bestageing2022}/scripts/helper/ggsurvplot_custom.R"))
 
-library(lubridate, lib.loc = "/mnt/users/reich/programs/R/lib")  # datetimes
-library(factoextra, lib.loc = "/mnt/users/reich/programs/R/lib")  # plotting of kmeans
+library(lubridate, lib.loc = lib_path)  # datetimes
+library(factoextra, lib.loc = lib_path)  # plotting of kmeans
 
 conflicted::conflict_prefer("expand", "tidyr")
+conflicted::conflicts_prefer(dplyr::filter)
 caching <- FALSE
 ```
 
@@ -76,40 +101,42 @@ The new report version includes:
 # Introduction
 
 ```{r}
-load(file = "/mnt/users/reich/BestAgeing/data/data.rda")
-load(file = "/mnt/users/reich/BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
-load(file = "/mnt/users/reich/BestAgeing/data/data.rda")  # "UKL-HD" n=731
+load(file = glue("{data_path_BestAgeing}/data/data.rda"))
+load(file = glue("{data_path_BestAgeing}/data/mirnas.rda"))  # "UKL-HD" n=765
+load(file = glue("{data_path_BestAgeing}/data/data.rda"))  # "UKL-HD" n=731
+
 # further cleaning
 all_mirnas <- clean_names(mirnas)
 names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
 mirnas_disease <- clean_names(data)
 names(mirnas_disease) <- str_replace(string = names(mirnas_disease), pattern = "mi_r", replacement = "mir")
 
-model_data1 <- clean_names(readRDS(file = '/mnt/users/reich/BestAgeing/data_new/model_data1.RDS'))  # # has also multiclass col + diagnoses
+model_data1 <- clean_names(readRDS(file = glue("{data_path_BestAgeing}/data_new/model_data1.RDS")))  # # has also multiclass col + diagnoses
 
 ###
 # METADATA --------------------------------------------------------------------
 ## DIAGNOSES DAT
-load(file = "/mnt/users/reich/BestAgeing/data/diagnoses_df.rda")
+load(glue("{data_path_BestAgeing}/data/diagnoses_df.rda"))
 
 ## SURVIVAL DAT
-survival_dat <- clean_names(readRDS(file = '../data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
-  # original path "../../XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
+survival_dat <- clean_names(readRDS(glue("{data_path_bestageing2022}/data/202211908_XMELD_abfrage_best_ageing.rds"))) # %>% 
+# original path "/mnt/users/reich/XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
 
 ## metadata from DB
 # https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
-load(file = "/mnt/users/reich/BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+load(glue("{data_path_BestAgeing}/data/clean_all_meta.rda"))  # created in "scripts/_prepare_metadata.R"
 clean_all_meta <- clean_all_meta %>% 
   mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
 # cath data? "hkdb"
 
-## load all original metadat xlsx files again to make sure that also overlapped patients (e.g. dcm+cad) are in each group
-control_ids <- read_excel("/mnt/users/reich/BestAgeing/data/pheno_controls.xlsx") %>% 
+## load all original metadat xlsx files again to make sure that also overlapped 
+#patients (e.g. dcm+cad) are in each group
+control_ids <- read_excel(glue("{data_path_BestAgeing}/data/pheno_controls.xlsx")) %>% 
   dplyr::pull(BestAgeingCode)
 
-## 2023-03-05
 # "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
 control_ids <- control_ids[control_ids != "UKL-HD-00318"]
+
 
 # RM DAT
 rm(mirnas)
@@ -147,18 +174,6 @@ table(survival_dat1$disease)
 First, lets inspect survival times of the different diseases: 
 
 ```{r}
-# easy KM
-sfit_diseases <- survfit(Surv(time, status) ~ disease, data = survival_dat1)
-ggsurvplot(fit = sfit_diseases, data = survival_dat1 )
-
-# custom plot
-p1.disease <- ggsurvplot_custom(fit_object = sfit_diseases, legend.title = "", myXbreaks = c(2.5, 5, 7.5),
-                                 legend.labs = c("ACS", "CAD", "CONTROL", "DCM"), plot_inlay = FALSE,
-                                save = FALSE, plotname = "p1_ALL_disease")
-p1.disease
-
-
-
 # 5y-mortality
 survival_dat1 <- survival_dat1 %>%
   # 5y mortality
@@ -167,6 +182,38 @@ survival_dat1 <- survival_dat1 %>%
 
 sfit_diseases.5y <- survfit(Surv(time5y, status5y) ~ disease, data = survival_dat1)
 ggsurvplot(fit = sfit_diseases.5y, data = survival_dat1 )
+
+
+# easy KM
+sfit_diseases <- survfit(Surv(time5y, status5y) ~ disease, data = survival_dat1)
+ggsurvplot(fit = sfit_diseases, data = survival_dat1 ) 
+
+# custom plot
+p1.disease <- ggsurvplot_custom(fit_object = sfit_diseases, legend.title = "", myXbreaks = c(1,2,3,4,5,6,7,8),
+                                 legend.labs = c("ACS", "CAD", "CONTROL", "DCM"), plot_inlay = FALSE,
+                                save = FALSE, plotname = "p1_ALL_disease")
+p1.disease$plot <- p1.disease$plot+
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(6)) +
+  my_base_theme()
+p1.disease
+
+
+if (SAVE.files == TRUE) {
+  #save
+  ## https://github.com/kassambara/survminer/issues/152
+  filename.km.alldiseases <- glue("{data_path_bestageing2022}/output/plots/survival/{Sys.Date()}-survival-alldiseases.svg")
+  # this works on my mac
+  ggsave(
+    filename = filename.km.alldiseases,
+    #plot = print(p1, newpage = FALSE),
+    survminer:::.build_ggsurvplot(p1.disease),
+    device = 'svg',
+    width = 10,
+    height = 8
+  )
+}
+
 ```
 
 # ML models survival probs
@@ -175,7 +222,7 @@ ggsurvplot(fit = sfit_diseases.5y, data = survival_dat1 )
 
 ```{r}
 # load models and predict probability of disease
-filenames2last.fit <- list.files("../output/test_set_results/test_results_20221127/")   # 9 models per disease
+filenames2last.fit <- list.files(glue("{data_path_bestageing2022}/output/test_set_results/test_results_20221127/"))   # 9 models per disease (done with files from 20211127)
 # rm "old" directory
 index <- filenames2last.fit=="old"
 filenames2last.fit <- filenames2last.fit[!index]
@@ -184,7 +231,7 @@ filenames2last.fit <- filenames2last.fit[!index]
 name2assignModelInEnv <- list()
 for (last.fit in 1:length(filenames2last.fit)) {
   selected.last.fit <- filenames2last.fit[last.fit]
-  full.path <- paste0("../output/test_set_results/test_results_20221127/",selected.last.fit)
+  full.path <- glue("{data_path_bestageing2022}/output/test_set_results/test_results_20221127/{selected.last.fit}")
   name2assignInEnv <- gsub(pattern = "\\d+_TEST", replacement = "TEST", filenames2last.fit[last.fit])
   name2assignInEnv <- gsub(pattern = "\\.rds$", replacement = "", name2assignInEnv)  # backslash 2 escape the dot character (special character)
   name2assignModelInEnv[[last.fit]] <- name2assignInEnv
@@ -204,7 +251,7 @@ model.disease.vector <- c("acs", "cad", "dcm")
 for (model.disease in 1:length(model.disease.vector)) {
   ## DATA 2 PREDICT FIRST
   # create parameter specific {disease}_ids
-  filename <- paste0("/mnt/users/reich/BestAgeing/data/pheno_", model.disease.vector[model.disease], ".xlsx")
+  filename <- glue("{data_path_BestAgeing}/data/pheno_{model.disease.vector[model.disease]}.xlsx")
   disease_vector <- paste0(model.disease.vector[model.disease], "_ids")
   assign(x = disease_vector, 
          value = read_excel(filename) %>% 
@@ -304,7 +351,7 @@ for (mydisease in 1:length(model.disease.vector)) {
     sfit_diseases <- survfit(Surv(time5y, status5y) ~ model.pred.groups, data = survival_dat1.disease)
     #test <- ggsurvplot(fit = sfit_diseases, data = survival_dat1.disease )
     surv.plotname <- str_remove(string = colnames.disease.predict.model, pattern = paste0(".pred_", model.disease.vector[mydisease], "_"))  
-    surv.plotname <- paste0(toupper(model.disease.vector[mydisease]), "_", surv.plotname)
+    surv.plotname <- paste0(model.disease.vector[mydisease], "/", Sys.Date(), toupper(model.disease.vector[mydisease]), "_", surv.plotname)
     surv.plottitle <- paste0(toupper(model.disease.vector[mydisease]), " probability predicted by ", model.names[my9models], " model")
     ggsurvplot_custom(fit_object = sfit_diseases, mytitle=surv.plottitle, legend.title = "Predicted disease probability: ", 
                       myXbreaks = c(1, 2,3,4, 5),
@@ -319,7 +366,7 @@ for (mydisease in 1:length(model.disease.vector)) {
 # CAD Clusters and Predictions
 
 ```{r}
-joined_hc_mirna <- readRDS("/mnt/users/reich//BestAgeing/data_new/joined_hc_mirna.rds") 
+joined_hc_mirna <- readRDS(glue("{data_path_BestAgeing}/data_new/joined_hc_mirna.rds"))
 
 colnames.disease.predict_cad <- paste0(".pred_cad_", model.names, "_DISEASE_cad_ANALYSIS_selected")  
 
@@ -451,9 +498,19 @@ fviz_cluster(object = kmeans.ba5, data = joined_hc_mirna1[ ,105:119],
   ggthemes::scale_color_few()+
   theme(legend.title=element_blank())  -> k5plot.cad
 
+k5plot.cad <- k5plot.cad +
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(6)) +
+  my_base_theme() +
+  theme(legend.title=element_blank())
+
 k5plot.cad
 
-ggsave(filename = "k5plotcad.svg", plot = k5plot.cad, width = 12, height = 8)
+
+
+path2cad_cluster_figure <- glue("{data_path_bestageing2022}/output/plots/cad_cluster/cad_cluster_k5")
+
+ggsave(filename = glue("{path2cad_cluster_figure}.svg"), plot = k5plot.cad, width = 12, height = 8)
 
 joined_hc_mirna1 <- joined_hc_mirna1 %>% 
   mutate(kmeans5centers = kmeans.ba5$cluster)
@@ -497,14 +554,55 @@ print(tab1, showAllLevels = TRUE, formatOptions = list(big.mark = ","))
 
 ## export to csv
 tab1MAT <- print(tab1, showAllLevels = TRUE, formatOptions = list(big.mark = ","), quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
-write.csv2(tab1MAT, file = "myTable-cad-hkdb.csv")
+write.csv2(tab1MAT, file = glue("{data_path_bestageing2022}/output/tables/cad_cluster/{Sys.Date()}_myTable-cad-hkdb.csv"))
 
 kableone(tab1, caption="Predictions of CAD Probability Stratified by Clusters of Coronary Angiography") %>% 
   kable_classic() -> kable.table.cad.hkdb
 kable.table.cad.hkdb
-saveRDS(kable.table.cad.hkdb, "kable.table.cad.hkdb.rds")
+
+# saveRDS(kable.table.cad.hkdb, glue("{data_path_bestageing2022}/output/tables/cad_cluster/{Sys.Date()}_kable.table.cad.hkdb.rds"))
 ## go to MAC Rstudio
 
+```
+
+
+```{r}
+# custom cluster plot ggplot
+
+# Perform PCA on the data
+pca_res <- prcomp(joined_hc_mirna1 %>% select(105:119), scale = TRUE)
+# Get the first two principal components
+joined_hc_mirna2 <- joined_hc_mirna1 %>% 
+  mutate(PC1 = pca_res$x[,1], 
+         PC2 = pca_res$x[,2])
+
+hc_predictions_dat %>% 
+  left_join(joined_hc_mirna2 %>% select(1, 105:119, PC1, PC2), by=c("pat_id" = "pat_id")) %>% 
+  mutate(.pred_control_XGB_DISEASE_cad_ANALYSIS_selected = .pred_control_XGB_DISEASE_cad_ANALYSIS_selected + 0.001) %>% 
+  mutate(kmeans5centers = as.factor(kmeans5centers)) %>% 
+  ggplot(aes(x = PC1, y=PC2, 
+             
+             #shape = kmeans5centers
+             )
+         ) +
+  geom_point(aes(color = .pred_control_XGB_DISEASE_cad_ANALYSIS_selected), alpha = 0.8, size = 2,
+             shape = 16
+             ) +
+  stat_ellipse(aes(fill = kmeans5centers), geom = "polygon", alpha = 0.2, level = 0.95) +
+  scale_color_gradient(low = thematic::okabe_ito(6)[2], high = "red") +
+  theme_minimal() +
+  labs(color = "CAD Probability", 
+       fill = "CAD Clusters"
+       #shape="Cluster"
+       ) +
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(5)) +
+  # scale_shape_manual(values=c(17, 18, 2, 1, 16)) +  # for example, if you have 3 clusters
+  my_base_theme() -> custom_cluster_plot_5k
+custom_cluster_plot_5k
+path2cad_cluster_figure <- glue("{data_path_bestageing2022}/output/plots/cad_cluster/cad_cluster_k5_custom")
+
+ggsave(filename = glue("{path2cad_cluster_figure}.svg"), plot = custom_cluster_plot_5k, width = 12, height = 8)
 
 
 ```

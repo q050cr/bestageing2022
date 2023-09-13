@@ -1,4 +1,39 @@
 
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  .libPaths("/mnt/users/reich/programs/R43/lib")
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
+library(glue, lib.loc = lib_path)
+library(dplyr, lib.loc = lib_path)
+library(tidyr, lib.loc = lib_path)
+library(stringr, lib.loc = lib_path)
+library(ggplot2, lib.loc = lib_path)
+library(ggrepel, lib.loc = lib_path)
+library(ggthemes, lib.loc = lib_path)
+library(survival, lib.loc = lib_path)
+library(survminer, lib.loc = lib_path)
+
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
+
+# custom function
+
 ggsurvplot_custom <- function(fit_object, mytitle="", legend.title, myXbreaks=c(0,1,2,3,4,5), legend.labs, 
                               plot_inlay=TRUE,
                               save=TRUE, plotname) {
@@ -52,7 +87,11 @@ ggsurvplot_custom <- function(fit_object, mytitle="", legend.title, myXbreaks=c(
   plot1$table$theme$plot.title <-  element_text(size = 12, color = "black", face = "bold", hjust = -0.1)
   plot1$plot <- plot1$plot + 
     theme_survminer(font.x = c(12, "bold", "black"),
-                    font.y = c(12, "bold", "black")) 
+                    font.y = c(12, "bold", "black")) +
+    ## CUSTOM THEME ADDED 2023-30-07
+    theme_minimal(base_size = 16, base_family = 'Arial')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme()
   
   
   if (plot_inlay==TRUE) {
@@ -112,17 +151,17 @@ ggsurvplot_custom <- function(fit_object, mytitle="", legend.title, myXbreaks=c(
   if (save == TRUE) {
     #save
     ## https://github.com/kassambara/survminer/issues/152
-    filename.p1 <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/survival/", Sys.Date(), "-survival-", plotname, ".png")
-    # this works on my mac
-    ggsave(
-      filename = filename.p1,
-      #plot = print(p1, newpage = FALSE),
-      survminer:::.build_ggsurvplot(plot1),
-      device = 'png',
-      width = 10,
-      height = 8
-    )
-    filename.p1 <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/survival/", Sys.Date(), "-survival-", plotname, ".svg")
+    #filename.p1 <- paste0(data_path_bestageing2022, "/output/plots/survival/", Sys.Date(), "-survival-", plotname, ".png")
+    ## this works on my mac
+    #ggsave(
+    #  filename = filename.p1,
+    #  #plot = print(p1, newpage = FALSE),
+    #  survminer:::.build_ggsurvplot(plot1),
+    #  device = 'png',
+    #  width = 10,
+    #  height = 8
+    #)
+    filename.p1 <- paste0(data_path_bestageing2022, "/output/plots/survival/", plotname, ".svg")
     ggsave(
       filename = filename.p1,
       #plot = print(p1, newpage = FALSE),

@@ -7,7 +7,7 @@
 # Get system name
 system_name <- Sys.info()["nodename"]
 mount_filesystem <- TRUE
-saveFILE <- TRUE
+saveFILE <- FALSE
 
 # Define library and data paths based on system
 if (system_name == "MacBook-Pro-CR-2065.local") {
@@ -135,6 +135,7 @@ docl <- list()  # create a list object for storing results
 topn.mirna.plt <- 20 # how many mirnas should be plotted in barplot?
 for (disease in seq_along(diseases)) {
   subset <- "-human" # changed to "-human" only, could also be changed to "-humantrials" only, or "" for full pubmed search !!!, only works without date in next line!
+  # 2023-06-16 or 2023-06-14 (used last time for analysis 2023-06-16 and then subset_research!)
   file <- glue::glue("{data_path_bestageing2022}/data-literature/pubmed-downloads/2023-06-14-pubmed-MicroRNA{subset}-{toupper(diseases[disease])}.txt")  
   
   ## load abstracts ----------------------------------------------------------
@@ -161,6 +162,8 @@ for (disease in seq_along(diseases)) {
                    extract_letters = TRUE)
   no.unique.articles <- length(unique(df_comparison$PMID))
   print(glue("---There are {no.unique.articles} unique articles concerning {diseases[disease]}---"))
+  print(glue("---There are {length(unique(df_comparison$miRNA))} unique miRNAs mentioned in the abstracts concerning {diseases[disease]}---"))
+  
   
   ## Pubmed Manual Inquiry and for GPT API ------------------------------------------------
   df_comparison_manual_pubmed <- df_comparison %>% 
@@ -333,7 +336,7 @@ for (disease in seq_along(diseases)) {
     #scale_colour_manual(values = thematic::okabe_ito(6)[3]) +
     #geom_col(alpha=0.5)+
     my_base_theme()
-  print(biomarker_plot)
+  
   # modify plot to really only include 20 bars (problem with DCM loads of miRNAs have only 1 abstract)
   biomarker_plot <- biomarker_plot$data %>% 
     arrange(desc(n)) %>% 
@@ -345,6 +348,7 @@ for (disease in seq_along(diseases)) {
     coord_flip() + xlab("miRNA") + ylab("Mentioned in # of abstracts") + 
     theme_minimal(base_size = 16, base_family = 'Arial') +
     my_base_theme()
+  print(biomarker_plot)
   
   if (saveFILE == TRUE) {
     # RDS will be used in "02harmonise-miRetrieve-v21.R" script
