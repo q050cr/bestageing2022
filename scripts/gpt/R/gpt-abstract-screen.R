@@ -8,6 +8,43 @@
 ## 90,000 TPM (tokens per minute)
 
 
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+saveFILE <- TRUE
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
+#  Load libraries
+require(miRetrieve, lib.loc = lib_path); packageVersion('miRetrieve')
+require(glue, lib.loc = lib_path)
+require(magrittr, lib.loc = lib_path) # Load magrittr for %>%
+require(ggplot2, lib.loc = lib_path) # Load ggplot2 for plotting
+require(svglite, lib.loc = lib_path)
+require(easyPubMed, lib.loc = lib_path) # Load easyPubMed, access to PubMed
+require(rcrossref, lib.loc = lib_path)
+require(dplyr, lib.loc = lib_path) # Data wrangling
+require(tidyr, lib.loc = lib_path) # Data wrangling
+require(patchwork, lib.loc = lib_path) # Group graphs
+#easyPubMed does not work
+require(rentrez, lib.loc = lib_path)
+require(pubmedR, lib.loc = lib_path)
+
+
+
 library(openai)
 library(chatgpt)
 library(httr)
@@ -15,11 +52,12 @@ library(jsonlite)
 library(reticulate)  # for 'tiktoken' library to count tokens
 library(tidyverse)
 library(glue)
-use_python("/Library/Frameworks/Python.framework/Versions/3.11/bin/python3", required = T)
-tiktoken <- import("tiktoken")
-encoding <- tiktoken$encoding_for_model("gpt-3.5-turbo")  # model
-myapikey <- Sys.getenv("OPENAI_API_KEY")
-gptmodel <- openai::list_models()$data$root[39]   # gpt-3.5-turbo-0613
+## comment out if this script is used in the future!! 
+# use_python("/Library/Frameworks/Python.framework/Versions/3.11/bin/python3", required = T)
+# tiktoken <- import("tiktoken")
+# encoding <- tiktoken$encoding_for_model("gpt-3.5-turbo")  # model
+# myapikey <- Sys.getenv("OPENAI_API_KEY")
+# gptmodel <- openai::list_models()$data$root[39]   # gpt-3.5-turbo-0613
 
 source(file = "./scripts/gpt/gpt-fns.R")
 
@@ -29,7 +67,7 @@ source(file = "./scripts/gpt/gpt-fns.R")
 diseases <- c("ACS", "CAD", "DCM", "HFrEF")
 diseases_tibble <- tibble(abbrev_disease = diseases,
                           disease_name = c("Acute Coronary Syndrome", "Coronary Artery Disease", "Dilatative Cardiomyopathy", "Heart Failure"))
-path2dat <- paste0("./data-literature/pubmed/", list.files(path = "./data-literature/pubmed/"))
+path2dat <- paste0(data_path_bestageing2022, "/data-literature/pubmed/", list.files(path = glue("{data_path_bestageing2022}/data-literature/pubmed/")))
 path2dat <- path2dat[grep("-2023-06-16-", path2dat)]   # use newest files from 2023-06-16
 
 cost_input <- numeric()
@@ -37,11 +75,16 @@ processed_input_tokens <- numeric()
 for(disease in seq_along(diseases)) {
   
   
-  my_abstracts <- read.csv2(file = path2dat[disease])
+  my_abstracts <- as_tibble(read.csv2(file = path2dat[disease]))
+  print(glue("For {diseases[disease]} {length(unique(my_abstracts$PMID))} unique abstracts were found."))
+  print(glue("For {diseases[disease]} {length(unique(my_abstracts$miRNA))} unique miRNAs were found."))
   # check api costs
   #calculate_input_token_cost() # now done in helper-fn in "gpt-fns.R"
   
 }
+
+length(unique(my_abstracts$PMID))
+length(unique(my_abstracts$miRNA))
 
 grouped_abstracts <- my_abstracts %>% 
   group_by(PMID) %>% 
