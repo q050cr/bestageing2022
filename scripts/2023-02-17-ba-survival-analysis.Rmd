@@ -356,7 +356,7 @@ for (mydisease in 1:length(model.disease.vector)) {
     ggsurvplot_custom(fit_object = sfit_diseases, mytitle=surv.plottitle, legend.title = "Predicted disease probability: ", 
                       myXbreaks = c(1, 2,3,4, 5),
                       legend.labs = c("low", "intermediate", "high"), plot_inlay = FALSE,
-                      save = TRUE, plotname = surv.plotname)
+                      save = FALSE, plotname = surv.plotname)
     
     
   }
