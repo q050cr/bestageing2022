@@ -351,12 +351,19 @@ for (mydisease in 1:length(model.disease.vector)) {
     sfit_diseases <- survfit(Surv(time5y, status5y) ~ model.pred.groups, data = survival_dat1.disease)
     #test <- ggsurvplot(fit = sfit_diseases, data = survival_dat1.disease )
     surv.plotname <- str_remove(string = colnames.disease.predict.model, pattern = paste0(".pred_", model.disease.vector[mydisease], "_"))  
+    ifl_poster_fast <- surv.plotname
+    
     surv.plotname <- paste0(model.disease.vector[mydisease], "/", Sys.Date(), toupper(model.disease.vector[mydisease]), "_", surv.plotname)
     surv.plottitle <- paste0(toupper(model.disease.vector[mydisease]), " probability predicted by ", model.names[my9models], " model")
     ggsurvplot_custom(fit_object = sfit_diseases, mytitle=surv.plottitle, legend.title = "Predicted disease probability: ", 
                       myXbreaks = c(1, 2,3,4, 5),
                       legend.labs = c("low", "intermediate", "high"), plot_inlay = FALSE,
                       save = FALSE, plotname = surv.plotname)
+    surv.plotname_poster_plot <- glue("{data_path_bestageing2022}/output/plots/IFL_poster2023/KM_all/{toupper(model.disease.vector[mydisease])}_{Sys.Date()}_{ifl_poster_fast}.svg")
+    ggsurvplot_custom_poster(fit_object = sfit_diseases, mytitle=NULL, legend.title = "", 
+                      myXbreaks = c(1, 2,3,4, 5),
+                      legend.labs = c("low", "intermediate", "high"), plot_inlay = FALSE,
+                      save = TRUE, plotname = surv.plotname_poster_plot)
     
     
   }
@@ -404,7 +411,7 @@ for(i in 2:6) {  # create 2 to 6 clusters
   ordered.index <- order(table(kmeans.ba$cluster), decreasing=TRUE)
   for (j in 2:max(kmeans.ba$cluster)) {
     cluster.name <- paste("Cluster ", j, sep = "")
-    kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[1]] <- "Moderate CAD"
+    kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[1]] <- "CAD +++"
     kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[j]] <- cluster.name
   }
   
@@ -446,7 +453,7 @@ kmeans.ba4 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
 ordered.index <- order(table(kmeans.ba4$cluster), decreasing=TRUE)
 for (j in 2:max(kmeans.ba4$cluster)) {
   cluster.name <- paste("Cluster ", j, sep = "")
-  kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[1]] <- "Moderate CAD"
+  kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[1]] <- "CAD +++"
   kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[j]] <- cluster.name
 }
 
@@ -479,7 +486,7 @@ kmeans.ba5 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
 ordered.index <- order(table(kmeans.ba5$cluster), decreasing=TRUE)
 for (j in 2:max(kmeans.ba5$cluster)) {
   cluster.name <- paste("Cluster ", j, sep = "")
-  kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[1]] <- "Moderate CAD"
+  kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[1]] <- "CAD +++"
   kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[j]] <- cluster.name
 }
 
@@ -517,7 +524,7 @@ joined_hc_mirna1 <- joined_hc_mirna1 %>%
 ```
 
 
-# Ad Modeling 
+# Descriptive Cluster Statistics and custom cluster plot (with probability)
 
 ```{r edit-data}
 joined_hc_mirna1 %>% 
@@ -527,8 +534,8 @@ joined_hc_mirna1 %>%
          ## CAD predictions
          69:86
   ) %>% 
-  mutate(kmeans4to2 = ifelse(kmeans4centers == "Moderate CAD", 0,1),
-         kmeans5to2 = ifelse(kmeans5centers == "Moderate CAD", 0,1)) %>% 
+  mutate(kmeans4to2 = ifelse(kmeans4centers == "CAD +++", 0,1),
+         kmeans5to2 = ifelse(kmeans5centers == "CAD +++", 0,1)) %>% 
   drop_na() -> hc_predictions_dat
 ```
 
@@ -600,9 +607,9 @@ hc_predictions_dat %>%
   # scale_shape_manual(values=c(17, 18, 2, 1, 16)) +  # for example, if you have 3 clusters
   my_base_theme() -> custom_cluster_plot_5k
 custom_cluster_plot_5k
-path2cad_cluster_figure <- glue("{data_path_bestageing2022}/output/plots/cad_cluster/cad_cluster_k5_custom")
+path2cad_cluster_figure <- glue("{data_path_bestageing2022}/output/plots/cad_cluster/{Sys.Date()}_cad_cluster_k5_custom")
 
-ggsave(filename = glue("{path2cad_cluster_figure}.svg"), plot = custom_cluster_plot_5k, width = 12, height = 8)
+ggsave(filename = glue("{path2cad_cluster_figure}.svg"), plot = custom_cluster_plot_5k, width = 7, height = 4)
 
 
 ```
