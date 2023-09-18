@@ -10,7 +10,7 @@ date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
 params:
   date: !r Sys.Date()
   doc_title: "The Default Title"
-  disease: "cad"   # possibilities: acs, cad, hfref, dcm
+  disease: "dcm"   # possibilities: acs, cad, hfref, dcm
   analysis: "selected"  # possibilities: selected, full
   miRetrieve: TRUE
 output: 
@@ -29,11 +29,10 @@ output:
 # Get system name
 system_name <- Sys.info()["nodename"]
 mount_filesystem <- TRUE
-SAVE.files <- TRUE
+SAVE.files <- FALSE
 miRetrieveBiomarker <- TRUE
 
-# Define library and data paths based on system
-if (system_name == "MacBook-Pro-CR-2065.local") {
+if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = system_name, "laptop-zim.uni-heidelberg.de")) {
   lib_path <- .libPaths()[1]
   data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
   data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
@@ -47,6 +46,8 @@ if (system_name == "MacBook-Pro-CR-2065.local") {
   data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
   data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
 }
+
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
 library(readxl, lib.loc = lib_path)
 library(glue, lib.loc = lib_path )
@@ -116,24 +117,20 @@ The rise of CV research in miRNAs began in 2005. I conducted an extensive pubmed
 
 ```{r load-mirna-data, include=FALSE, warning=FALSE}
 ## MIRNA DAT
-model_data1 <- clean_names(readRDS(file = '/mnt/users/reich/BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
-
-
-load(file = "/mnt/users/reich/BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
-load(file = "/mnt/users/reich/BestAgeing/data/data.rda")  # "UKL-HD" n=731
+model_data1 <- clean_names(readRDS(file = glue('{data_path_BestAgeing}/data_new/model_data1.RDS')))  # has also multiclass col + diagnoses
+load(file = glue('{data_path_BestAgeing}/data/mirnas.rda'))  # "UKL-HD" n=765
+load(file = glue('{data_path_BestAgeing}/data/data.rda'))  # "UKL-HD" n=731
 all_mirnas <- clean_names(mirnas)
 names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
 mirnas_disease <- clean_names(data)
 names(mirnas_disease) <- str_replace(string = names(mirnas_disease), pattern = "mi_r", replacement = "mir")
-
-#
 rm(data, mirnas)
 ```
 
 
 ```{r load-mirnas-from_research, include=FALSE, warning=FALSE}
 # create vector of described mirnas
-load("/mnt/users/reich/BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
+load(glue("{data_path_BestAgeing}/data_research/fromR/researchMiRNAAccession.rda"))
 # check if all mirnas are named the same
 researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
   str_replace(pattern = "mi_r", replacement = "mir")
@@ -144,37 +141,36 @@ researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession
 researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hsa_mir_106a_5p"] <- "hsa_mir_106b_5p"
 
 # load miRetrieve rds (created in model.R)
-path2file_miRetrieve <- glue('/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{params$disease}/2023-07-12-human-disease_biomarker_with_accession_max_value.rds')
+path2file_miRetrieve <- glue('{data_path_bestageing2022}/data-literature/miRetrieve/{params$disease}/2023-07-12-human-disease_biomarker_with_accession_max_value.rds')
 human_disease_biomarker <- readRDS(file = path2file_miRetrieve)
 ```
 
 
 ```{r load-metadat, include=FALSE, warning=FALSE}
 ## DIAGNOSES DAT
-load(file = "/mnt/users/reich/BestAgeing/data/diagnoses_df.rda")
-#load(file = "/mnt/users/reich/BestAgeing/data/diagnoses.rda")
+load(glue("{data_path_BestAgeing}/data/diagnoses_df.rda"))
 
 ## SURVIVAL DAT
-survival_dat <- clean_names(readRDS(file = '/mnt/users/reich/rockerprojects/bestageing2022/data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
-  # original path "../../XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
+survival_dat <- clean_names(readRDS(glue("{data_path_bestageing2022}/data/202211908_XMELD_abfrage_best_ageing.rds"))) # %>% 
+# original path "/mnt/users/reich/XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
 
 ## metadata from DB
 # https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
-load(file = "/mnt/users/reich/BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+load(glue("{data_path_BestAgeing}/data/clean_all_meta.rda"))  # created in "scripts/_prepare_metadata.R"
 clean_all_meta <- clean_all_meta %>% 
   mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
 # cath data? "hkdb"
 
-## load all original metadat xlsx files again to make sure that also overlapped patients (e.g. dcm+cad) are in each group
-control_ids <- read_excel("/mnt/users/reich/BestAgeing/data/pheno_controls.xlsx") %>% 
+## load all original metadat xlsx files again to make sure that also overlapped 
+#patients (e.g. dcm+cad) are in each group
+control_ids <- read_excel(glue("{data_path_BestAgeing}/data/pheno_controls.xlsx")) %>% 
   dplyr::pull(BestAgeingCode)
 
-## 2023-03-05
 # "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
 control_ids <- control_ids[control_ids != "UKL-HD-00318"]
 
 # create parameter specific {disease}_ids
-filename <- paste0("/mnt/users/reich/BestAgeing/data/pheno_", params$disease, ".xlsx")
+filename <- glue("{data_path_BestAgeing}/data/pheno_{params$disease}.xlsx")
 disease_vector <- paste0(params$disease, "_ids")
 assign(x = disease_vector, 
        value = read_excel(filename) %>% 
@@ -531,7 +527,7 @@ all_workflows <- all_workflows %>%
 
 # select DISEASE and ANALYSIS and miRetrieve from path -> choose last one trained
 
-path2tuning <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/tuning_results/{params$disease}")
+path2tuning <- glue("{data_path_bestageing2022}/output/tuning_results/{params$disease}")
 if(params$analysis == "selected" & params$miRetrieve == TRUE) {
   index_race <- 
     str_detect(list.files(path = path2tuning), pattern = text_disease)  & 
@@ -747,6 +743,33 @@ if(SAVE.files==TRUE) {
          
   )
 }
+
+# IFL poster 2023-09
+ci_auc_plusminus <- auc_test-ci.auc[1]
+
+IFL_roc_top <- test_results1 %>%
+  collect_predictions() %>%
+  ## factor order usually alphabetically! (acs < control)
+  mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
+  roc_curve(disease, !!sym(pred_string), event_level="second") %>%
+  ggplot(aes(1 - specificity, sensitivity)) +
+  geom_line(linewidth = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
+  geom_path(show.legend = FALSE) + # black line in the middle
+  geom_abline(lty = 2, color = ggthemes_data$few$colors$Dark[1,2][[1]], size = 1.2, alpha=0.5) +
+  coord_equal() +
+  labs(title = NULL, subtitle = NULL) +
+  annotate("text", x = 0.4, y=0.2, label = glue("AUC={round(auc_test,2)}±{round(ci_auc_plusminus,2)}"), size=4, hjust = 0) +
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(6)) +
+  my_base_theme()
+
+IFL_roc_top
+
+ggsave(filename = glue("{data_path_bestageing2022}/output/plots/IFL_poster2023/{Sys.Date()}_ROC_topmodel1_{text_disease}_analysis_{str_to_upper(params$analysis)}.svg"), 
+       plot = IFL_roc_top, 
+       width = 3, height = 3, 
+       units = "in"
+)
 ```
 
 
@@ -787,7 +810,7 @@ predictions_loop <- list()
 caret_conf_mat <- list()
 coefficients_loop <- list()
 
-cluster_root <- '/mnt/users/reich/rockerprojects/bestageing2022/'
+cluster_root <- data_path_bestageing2022
 
 for (models in seq_along(1:nrow(race_results)) ) {
   ## retrieve ID
@@ -896,6 +919,34 @@ for (models in seq_along(1:nrow(race_results)) ) {
     )
   }
   
+  # IFL poster 2023-09
+  ci_auc_plusminus <- aucs[models] - ci.auc[1]
+  
+  IFL_roc_top_all <- predictions_loop[[models]] %>%
+    ## factor order usually alphabetically! (acs < control)
+    mutate(disease = factor(disease, levels=c("control", params$disease))) %>%  
+    roc_curve(disease, !!sym(pred_string), event_level="second") %>%
+    ggplot(aes(1 - specificity, sensitivity)) +
+    geom_line(linewidth = 1.5, color = ggthemes_data$few$colors$Dark[2,2][[1]]) +
+    geom_path(show.legend = FALSE) + # black line in the middle
+    geom_abline(lty = 2, color = ggthemes_data$few$colors$Dark[1,2][[1]], size = 1.2, alpha=0.5) +
+    coord_equal() +
+    labs(title = NULL, subtitle = NULL) +
+    annotate("text", x = 0.4, y=0.2, label = glue("AUC={round(aucs[models],2)}±{round(ci_auc_plusminus,2)}"), size=4, hjust = 0) +
+    theme_minimal(base_size = 16, base_family = 'Arial')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme()
+  
+  IFL_roc_top_all
+  
+  ggsave(filename = glue("{data_path_bestageing2022}/output/plots/IFL_poster2023/ROC_all/{Sys.Date()}_{text_disease}_ROC_{wflow_id}_analysis_{str_to_upper(params$analysis)}.svg"), 
+         plot = IFL_roc_top_all, 
+         width = 3, height = 3, 
+         units = "in"
+  )
+  
+  
+  
   ## factor order usually alphabetically! (acs < control)
   predictions_loop[[models]] <- predictions_loop[[models]] %>% 
     mutate(.pred_class_youden = factor(.pred_class_youden, levels=c("control", params$disease)),
@@ -935,9 +986,16 @@ filename.df.xlsx <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/outpu
 filename.df.rds <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/performance_summary_df/", format(params$date, "%Y%m%d"), "_",
                       params$disease,"_ANALYSIS_", params$analysis, "_performance_summary_table.rds")
 
-openxlsx::write.xlsx(performance.summary.table, file = filename.df.xlsx, overwrite = TRUE)
-saveRDS(performance.summary.table, file = filename.df.rds)
+if(SAVE.files == TRUE) {
+  openxlsx::write.xlsx(performance.summary.table, file = filename.df.xlsx, overwrite = TRUE)
+  saveRDS(performance.summary.table, file = filename.df.rds)
+}
+
+# save for IFL poster
+
+saveRDS(performance.summary.table, file = glue("{data_path_bestageing2022}/output/plots/IFL_poster2023/performance_sum_plot/data/performance_table_{text_disease}.rds"))
 ```
+
 
 \clearpage
 
