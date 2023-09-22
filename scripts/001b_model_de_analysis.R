@@ -755,6 +755,7 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
                          pval.glm = pval.glm,
                          pval.glm.sva = pval.glm_sva,
                          pval.t.test.permute =pval.t.test.permute, 
+                         pval.glm_rob =pval.glm_rob,
                          aucs_univariate = aucs,
                          aucs_glm = auc_glm,
                          aucs_glm_sva = auc_glm_sva,
@@ -764,12 +765,12 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
                          auc_glm_rob_pca=auc_glm_rob_pca)
     
     # for figure 1 vogel 2013 
-    adjusting_method <- "holm" # "BH"
+    adjusting_method <- "BH" # "holm" # "BH"
     results_logmedians <- tibble(miR =name.mir, auc=aucs, aucs_glm = auc_glm, aucs_glm_sva = auc_glm_sva,
                                  pval.t.test = pval.t.test, pval.u.test = pval.u.test, pval.glm = pval.glm, pval.glm_sva = pval.glm_sva, pval.t.test.permute=pval.t.test.permute,
-                                 pval.glm_pca = pval.glm_pca,
+                                 pval.glm_rob = pval.glm_rob, pval.glm_rob_pca =pval.glm_rob_pca,
+                                 pval.glm_pca = pval.glm_pca, 
                                  auc_glm_pca = auc_glm_pca,
-                                 pval.glm_rob_pca =pval.glm_rob_pca,
                                  auc_glm_rob_pca=auc_glm_rob_pca,
                                  logmedian.cont = median.cont, logmedian.case = median.case,
                                  logmean.cont = mean.cont, logmean.case = mean.case, empse.case, empse.cont) %>% 
@@ -779,7 +780,10 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
              padj.u.test = p.adjust(pval.u.test, method = adjusting_method, n = length(name.mir)), 
              padj.glm = p.adjust(pval.glm, method = adjusting_method, n = length(name.mir)),
              padj.glm_sva = p.adjust(pval.glm_sva, method = adjusting_method, n = length(name.mir)),
-             padj.t.test.permute = p.adjust(pval.t.test.permute, method = adjusting_method, n = length(name.mir))) %>% 
+             padj.t.test.permute = p.adjust(pval.t.test.permute, method = adjusting_method, n = length(name.mir)),
+             padj.glm_rob = p.adjust(pval.glm_rob, method = adjusting_method, n = length(name.mir)),
+             padj.glm_rob_pca = p.adjust(pval.glm_rob_pca, method = adjusting_method, n = length(name.mir)),
+      ) %>% 
       mutate(sign_indicator = ifelse(padj < 0.05, "p.adj≤0.05", "n.s."),
              sign_indicator_sva = ifelse(padj.glm_sva < 0.05, "p.adj≤0.05", "n.s."))
     
@@ -797,11 +801,11 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
     pvalues <- results_logmedians$pval.t.test
     pvalues <- results_logmedians$pval.glm_pca
     pvalues <- results_logmedians$pval.glm_rob_pca
-    pvalues <- results_logmedians$pva
+    pvalues <- results_logmedians$padj.glm
+    pvalues <- results_logmedians$padj.glm_rob
     
     qqplot_data <- data.frame(observed = -log10(sort(pvalues)),
                               expected = -log10(ppoints(length(pvalues))))
-    
     # calculate lambda 
     
     qqplot_pvalues <- ggplot(qqplot_data, aes(x = expected, y = observed)) +
