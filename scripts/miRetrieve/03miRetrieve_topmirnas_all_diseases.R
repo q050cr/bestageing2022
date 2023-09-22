@@ -64,6 +64,22 @@ table_mirna_top50bm_score_alldiseases <- tibble(
   prognostic = NA
 )
 
+miRetrieve_alldiseases_ALL <- tibble(PMID = NA, Topic=NA, TargetName=NA, Accession=NA)
+table_mirna_ALL_bm_score_alldiseases <- tibble(
+  Topic = NA,
+  TargetName = NA,
+  miRNA = NA,
+  Accession = NA,
+  Biomarker_score = NA,
+  miRetrieve = NA,
+  max_value = NA,
+  PMIDs = NA,
+  upregulated_percent_study = NA,
+  serum_plasma_tissue = NA,
+  sample_size_studies = NA,
+  prognostic = NA
+)
+
 for(i in 1:length(all_combis$diseases)){
   # LOOP start ----------------------------------------------------------------
   # files created in "harmonise-miRetrieve-v21.R"
@@ -82,6 +98,84 @@ for(i in 1:length(all_combis$diseases)){
     dplyr::slice(1:30)
   
   
+  # NO slicing top 50 -------------------------------------------------------
+  
+  human_disease_biomarker_ALL <- human_disease_biomarker %>% 
+    drop_na(Accession) %>% 
+    arrange(desc(Biomarker_score)) %>% 
+    left_join(human_disease_biomarker_count %>% 
+                select(Accession, miRetrieve, PubMed) %>% 
+                drop_na(Accession) %>% 
+                filter(!duplicated(Accession)), 
+              by=c("Accession"="Accession")) %>% 
+    # drop_na(miRetrieve) %>%   # some PMIDs not in most hits ;)
+    mutate(miRetrieve = ifelse(is.na(miRetrieve), 0, miRetrieve) ) %>% 
+    ## !! GROUP BY distinct miRNAs!!
+    group_by(Accession) %>% 
+    mutate(max_value = (Biomarker_score + miRetrieve)) %>% 
+    arrange(desc(max_value)) %>% 
+    slice(1) %>% 
+    ungroup() %>% 
+    arrange(desc(max_value)) %>% 
+    drop_na(TargetName) #%>% 
+    #slice(1:50)  # top 50 
+  
+  # change here
+  human_disease_biomarker_ALL <- human_disease_biomarker_ALL %>% 
+    select(-c(miRetrieve, PubMed, Biomarker_score, max_value)) %>% 
+    left_join(human_disease_biomarker_with_article_count %>% mutate(miRNA=paste0("hsa-", miRNA)),
+              by=c("miRNA"="miRNA", "Topic"="Topic"))
+  
+  # TABLE miRNAs ::: get all PMIDs with BM score above threshold (threshold = 5 according to '01miRetrieve_loop.R') corresponding to unique miRNAs  -----------------------------------------------
+  no.unique.articles <- length(unique(human_disease_biomarker$PMID))
+  
+  mirna_pmids <- human_disease_biomarker %>% 
+    group_by(miRNA) %>% 
+    summarize(PMIDs = toString(unique(PMID)))
+  
+  table_mirna_ALL <- human_disease_biomarker_ALL %>% 
+    left_join(mirna_pmids, by=c("miRNA"="miRNA")) %>% 
+    select(Topic, TargetName, miRNA, Accession, Biomarker_score, miRetrieve, max_value, PMIDs)
+  
+  # gpt response load
+  gpt_response <- as_tibble(read.csv(file = glue("{data_path_bestageing2022}/output/gpt_dataframe/{toupper(all_combis$diseases[i])}/2023-06-30-df-pubmed-gpt_response.csv"))) %>% 
+    mutate(
+      direction_upreg_downreg = ifelse(direction_upreg_downreg == "Not Given", NA, direction_upreg_downreg),
+      serum_plasma_tissue = ifelse(serum_plasma_tissue == "Not Sure", NA, serum_plasma_tissue),
+      mortality = ifelse(mortality == "Not Sure", NA, mortality),
+      sample_size = ifelse(sample_size == 0, NA, sample_size)) %>% 
+    mutate(miRNA = paste0("hsa-", miRNA))
+  
+  gpt_response_structured <- gpt_response %>% 
+    group_by(miRNA) %>% 
+    summarize(upregulated_percent_study = round(mean(direction_upreg_downreg == "Upregulated", na.rm=TRUE), 2),
+              serum_plasma_tissue = round(mean(serum_plasma_tissue == "Serum" | serum_plasma_tissue == "Plasma", na.rm=TRUE), 2),
+              sample_size_studies = toString(sample_size), 
+              prognostic = round(mean(mortality == "Yes", na.rm=TRUE), 2))
+  # combine
+  table_mirna_ALL <- table_mirna_ALL %>% 
+    left_join(gpt_response_structured, by = c("miRNA"="miRNA")) %>% 
+    mutate(
+      TargetName = make_clean_names(TargetName) %>% 
+        str_replace(pattern = "mi_r", replacement = "mir")
+    ) %>% 
+    filter(TargetName %in% names(mirnas_disease)) %>% 
+    arrange(desc(miRetrieve))
+  
+  # prepare for matching to BestAgeing dat -------------------------------------
+  human_disease_biomarker_ALL$TargetName <-  make_clean_names(human_disease_biomarker_ALL$TargetName) %>% 
+    str_replace(pattern = "mi_r", replacement = "mir")
+  # sanity check if miRNA names are in sequenced df
+  human_disease_biomarker_selection_ALL <- human_disease_biomarker_ALL %>% 
+    filter(TargetName %in% names(mirnas_disease)) %>% 
+    select(PMID, Topic, TargetName, Accession)
+  
+  miRetrieve_alldiseases_ALL <- rbind(miRetrieve_alldiseases_ALL, human_disease_biomarker_selection_ALL)  # old
+  table_mirna_ALL_bm_score_alldiseases <- rbind(table_mirna_ALL_bm_score_alldiseases, table_mirna_ALL)  # new
+  
+
+  # TOP 50 per disease ------------------------------------------------------
+
   human_disease_biomarker_top50 <- human_disease_biomarker %>% 
     drop_na(Accession) %>% 
     arrange(desc(Biomarker_score)) %>% 
@@ -154,7 +248,15 @@ for(i in 1:length(all_combis$diseases)){
   
   miRetrieve_alldiseases <- rbind(miRetrieve_alldiseases, human_disease_biomarker_selection)  # old
   table_mirna_top50bm_score_alldiseases <- rbind(table_mirna_top50bm_score_alldiseases, table_mirna_top50)  # new
+  
+
 }
+
+
+
+
+
+# top 50 ------------------------------------------------------------------
 
 miRetrieve_alldiseases <- miRetrieve_alldiseases[-1, ]
 table_mirna_top50bm_score_alldiseases <- table_mirna_top50bm_score_alldiseases[-1, ]
@@ -165,6 +267,17 @@ if (SAVE.files ==TRUE) {
 }
 
 length(unique(miRetrieve_alldiseases$Accession))
+
+
+# all miRetrieve above bm threshold ---------------------------------------
+
+miRetrieve_alldiseases_ALL <- miRetrieve_alldiseases_ALL[-1, ]
+table_mirna_ALL_bm_score_alldiseases <- table_mirna_ALL_bm_score_alldiseases[-1, ]
+# save
+if (SAVE.files ==TRUE) {
+  saveRDS(object = miRetrieve_alldiseases_ALL, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/{Sys.Date()}_ALL_bm_mirnas_all_diseases.rds"))  # old
+  saveRDS(object = table_mirna_ALL_bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/{Sys.Date()}_ALL_bm_mirnas_all_diseases_pmids_gpt.rds"))  # new
+}
 
 
 # keywords biomarker from miRetrieve
