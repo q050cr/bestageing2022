@@ -136,7 +136,7 @@ rin_mean <- mean(as.numeric(hbdx_metadat$rin), na.rm=TRUE)
 rin_sd <- sd(as.numeric(hbdx_metadat$rin), na.rm=TRUE)
 
 # detection matrix
-det_mat_all_mirnas <- read.table("/Volumes/T7CR/data/bestageing2022/data/kahraman2023/det_mat_all_mirnas.txt") %>% 
+det_mat_all_mirnas <- read.table(glue("{data_path_bestageing2022}/data/kahraman2023/det_mat_all_mirnas.txt")) %>% 
   t() %>% 
   as.data.frame() %>% 
   clean_names()
