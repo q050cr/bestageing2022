@@ -5,6 +5,12 @@
 
 # scripts saves tuned models (not finalized) to: "./output/tuning_results/"
 
+
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
+
 # Define library and data paths based on system
 if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = system_name, "laptop-zim.uni-heidelberg.de")) {
   lib_path <- .libPaths()[1]
@@ -70,6 +76,7 @@ require(rules, lib.loc = lib_path)
 tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
 cores <- parallel::detectCores()
 if (!grepl("mingw32", R.Version()$platform)) {
