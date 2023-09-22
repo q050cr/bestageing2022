@@ -5,6 +5,11 @@
 
 # scripts saves tuned models (not finalized) to: "./output/tuning_results/"
 
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
+
 # Define library and data paths based on system
 if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = system_name, "laptop-zim.uni-heidelberg.de")) {
   lib_path <- .libPaths()[1]
@@ -51,6 +56,7 @@ require(naivebayes, lib.loc = lib_path)
 require(kernlab, lib.loc = lib_path)
 require(xgboost, lib.loc = lib_path)
 require(nnet, lib.loc = lib_path)
+require(colino, lib.loc = lib_path)
 #library(keras, lib.loc = lib_path)  # ## ERRORS with keras
 # Fold2: preprocessor 1/1, model 100/100:
 # Error: Python shared library not found, Python bindings not loaded.
@@ -243,7 +249,7 @@ for (i in 1:nrow(all_combis)) {
   
   # load disease specific data from 001c ----------------------------------------------------------
   # specific to this script (preprocessing, filtered miRNAs with Detection Matrix, batch effects removed)
-  path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[2]}_data01.rds")
+  path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[i]}_data01.rds")
   if(!file.exists(path2dataprocessed)) {
     next
   }
@@ -325,6 +331,8 @@ for (i in 1:nrow(all_combis)) {
   ###
   # recipe -------------------------------------------------
   # A
+  
+  n_feature_select <- 15  # how many mirna select in training?
   normalized_rec <- 
     recipe(disease ~ ., data = dat_train) %>%
     ### https://recipes.tidymodels.org/articles/Ordering.html
@@ -341,7 +349,7 @@ for (i in 1:nrow(all_combis)) {
     step_YeoJohnson() %>% 
     step_normalize(all_numeric_predictors()) %>%  
     step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = 15)
+    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   # B
   poly_rec <- 
     recipe(disease ~ ., data = dat_train) %>%
@@ -353,7 +361,7 @@ for (i in 1:nrow(all_combis)) {
     step_normalize(all_numeric_predictors()) %>%  
     step_poly(all_numeric_predictors()) %>% 
     step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = 15)
+    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   #step_interact( ~all_predictors():all_predictors())
   
   # C
@@ -368,11 +376,11 @@ for (i in 1:nrow(all_combis)) {
     # DECORRELATE
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
     step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = 15)
+    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   
   # sanity check
-  #prepped_rec <- prep(normalized_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
-  #test_baked_train <- bake(prepped_rec, new_data = dat_test)
+  prepped_rec <- prep(normalized_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
+  test_baked_train <- bake(prepped_rec, new_data = dat_train)
   
   ###
   # specs-parsnip ----------------------------------------------------------
@@ -484,62 +492,46 @@ for (i in 1:nrow(all_combis)) {
   # need to finalize mtry - data dependent (unknown values - how many predictors?)
   ## data dependent: mtry(), sample_size(), num_terms(), num_comp()
   set.seed(123)
-  if (all_combis$analysis[i] == "selected") {
-    # only 114 mirnas in analysis or even less 50 if miRetrieve is TRUE
-    grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
-      extract_parameter_set_dials() %>% 
-      # data dependent
-      update(mtry = mtry(range = c(1, ncol(dat_train)-2)) ) %>%  # leave out ID and outcome 
-      grid_latin_hypercube(size=300) 
-  } else{
-    # full analysis with all mirnas: limit `mtry()`
-    grid_RF <- rand_forest_ranger_spec %>% 
-      extract_parameter_set_dials() %>% 
-      # data dependent
-      update(mtry = mtry(range = c(1, ceiling(ncol(dat_train)/2))) ) %>%  # not using all features
-      grid_latin_hypercube(size=300) 
-  }
   
-  if (all_combis$analysis[i] == "selected") {
-    # only 114 mirnas in analysis
-    grid_XGB <- boost_tree_xgboost_spec %>%   # 2 hyperparams
-      extract_parameter_set_dials() %>% 
-      # data dependent
-      update(mtry = mtry(range = c(1, ncol(dat_train)-2)) ) %>% 
-      grid_latin_hypercube(size=300) 
-  } else{
-    # full analysis with all mirnas: limit `mtry()`
-    grid_XGB <- boost_tree_xgboost_spec %>% 
-      extract_parameter_set_dials() %>% 
-      # data dependent
-      update(mtry = mtry(range = c(1, ceiling(ncol(dat_train)/2))) ) %>%  # not using all features
-      grid_latin_hypercube(size=300) 
-  }
+  grid_size <- 100
+  # CAVE RF and XGB max mtry must be in range of predictors!
+  grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
+    extract_parameter_set_dials() %>% 
+    # data dependent
+    update(mtry = mtry(range = c(1, n_feature_select+2)) ) %>%  # mirnas + age + sex
+    grid_latin_hypercube(size=grid_size) 
+
+  grid_XGB <- boost_tree_xgboost_spec %>%   # 2 hyperparams
+    extract_parameter_set_dials() %>% 
+    # data dependent
+    update(mtry = mtry(range = c(1, n_feature_select+2)) ) %>%  # mirnas + age + sex
+    grid_latin_hypercube(size=grid_size) 
+  
   
   grid_KNN <- nearest_neighbor_kknn_spec %>%  # 3 hyperparams
     extract_parameter_set_dials() %>%
-    grid_latin_hypercube(size=300)
+    grid_latin_hypercube(size=grid_size)
   
   grid_SVM_radial <- svm_rbf_kernlab_spec %>%   # 3 hyperparams
     extract_parameter_set_dials() %>%
-    grid_latin_hypercube(size=300)
+    grid_latin_hypercube(size=grid_size)
   
   grid_SVM_poly <- svm_poly_kernlab_spec %>%   # 4 hyperparams
     extract_parameter_set_dials() %>%
-    grid_latin_hypercube(size=300)
+    grid_latin_hypercube(size=grid_size)
   
   grid_SVM_linear <- svm_linear_kernlab_spec %>%   # 2 hyperparams
     extract_parameter_set_dials() %>%
-    grid_latin_hypercube(size=300)
+    grid_latin_hypercube(size=grid_size)
   
   grid_neural_network <- mlp_nnet_spec %>%   # 3 hyperparams
     extract_parameter_set_dials() %>% 
     update(epochs = epochs() %>% range_set(c(10, 150))) %>%   # epochs()  Range: [10, 1000] (default)
-    grid_latin_hypercube(size=300)
+    grid_latin_hypercube(size=grid_size)
   
   grid_full_quad_logistic_reg <- logistic_reg_glmnet_spec %>%  # 2 hyperparams
     extract_parameter_set_dials() %>% 
-    grid_latin_hypercube(size=300)
+    grid_latin_hypercube(size=grid_size)
   
   ## supply grid to workflow options
   # https://github.com/tidymodels/workflowsets/issues/37
@@ -598,8 +590,11 @@ for (i in 1:nrow(all_combis)) {
   print(glue("|||----------------------- It took {round(time.diff.race,4)} mins to tune all grids with the race approch for {stringr::str_to_upper(all_combis$diseases[i])} and selection of miRNAs {stringr::str_to_upper(all_combis$analysis[i])} -----------------------|||"))
   
   ## SAVE RACE RESULTS -----------------------------------------
-  filename_tune_race_results <- glue("/mnt/users/reich/rockerprojects/bestageing2022/output/tuning_results/{all_combis$diseases[i]}/003c_{Sys.Date()}_tune_race_results_repeats_{repeats}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}.rds")
-  saveRDS(object = race_results, file = filename_tune_race_results)
+  if(SAVE.files == TRUE) {
+    filename_tune_race_results <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_{Sys.Date()}_tune_race_results_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}.rds")
+    saveRDS(object = race_results, file = filename_tune_race_results)
+  }
+
   
   num_race_models <- sum(collect_metrics(race_results)$n)
   
@@ -632,13 +627,13 @@ for (i in 1:nrow(all_combis)) {
     labs(title=paste0("Ranking models: ", text_disease, ", miRNA_set: ", 
                       str_to_upper(all_combis$analysis[i])),
          subtitle= paste0("Racing approach | n_grids evaluated: ", num_race_models))+
-    ggthemes::theme_few()+
+    scale_x_continuous(breaks = seq(1, nrow(race_results), by = 1)) +
+    theme_minimal(base_size = 16, base_family = 'Arial')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme() +
     theme(legend.position = "none") -> plot_tune_race_ranking
   
-  filename_plot_tune_race_ranking <- paste0("/mnt/users/reich/rockerprojects/bestageing2022/output/plots/tune_race_ranking/", all_combis$diseases[i], "/", 
-                                            Sys.Date(), "_tune_race_ranking_repeats_", repeats, "_",
-                                            text_disease, "_analysis_", str_to_upper(all_combis$analysis[i]), "_miRetrieve_", miRetrieveBiomarker, "_randomMIR_", random_selection,
-                                            ".svg")
+  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_{Sys.Date()}_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}.rds")
   ggsave(filename = filename_plot_tune_race_ranking, plot = plot_tune_race_ranking, 
          width = 14, height = 10, 
          units = "in"  # default
