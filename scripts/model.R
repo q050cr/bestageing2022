@@ -21,14 +21,6 @@ if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = sy
   data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
 }
 
-for (pkg in pkg_vector){
-  if (!require(pkg, character.only = TRUE, lib.loc = lib_path)){
-    install.packages(pkg, lib = lib_path)
-    require(pkg, character.only = TRUE, lib.loc = lib_path)
-  }
-}
-
-
 
 # dependencies ---------------------------------------------------------------
 require(readxl, lib.loc = lib_path)
@@ -92,9 +84,16 @@ if (!grepl("mingw32", R.Version()$platform)) {
 # set analysis variables - alternatively sys args -------------------------------
 args <- commandArgs(trailingOnly = TRUE)
 miRetrieveBiomarker <- as.logical(args[1])  # if TRUE "selected" analysis will use top 50 biomarkers from miRetrieve research
-random_selection <- as.logical(args[2])  # random selection only runs as a "selected" analysis!
+random_selection <- as.logical(args[2])  # random selection only runs as a "selected" analysis!  # default FALSE
 no_folds <- 5
-no_repeats <- as.integer(args[3])
+no_repeats <- as.integer(args[3])  # default 10
+
+if(length(args) == 0) {
+  no_repeats <- 10
+  miRetrieveBiomarker <- TRUE
+  random_selection <- FALSE
+}
+
 
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
@@ -111,21 +110,52 @@ all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
 
 ###
 # load data ---------------------------------------------------------------
-
 # MIRNA DAT
-model_data1 <- clean_names(readRDS(file = '/mnt/users/reich/BestAgeing/data_new/model_data1.RDS'))  # has also multiclass col + diagnoses
-
-load(file = "/mnt/users/reich/BestAgeing/data/mirnas.rda")  # "UKL-HD" n=765
-load(file = "/mnt/users/reich/BestAgeing/data/data.rda")  # "UKL-HD" n=731
+model_data1 <- clean_names(readRDS(file = glue('{data_path_BestAgeing}/data_new/model_data1.RDS')))  # has also multiclass col + diagnoses
+load(file = glue('{data_path_BestAgeing}/data/mirnas.rda'))  # "UKL-HD" n=765
+load(file = glue('{data_path_BestAgeing}/data/data.rda'))  # "UKL-HD" n=731
 all_mirnas <- clean_names(mirnas)
 names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
 mirnas_disease <- clean_names(data)
 names(mirnas_disease) <- str_replace(string = names(mirnas_disease), pattern = "mi_r", replacement = "mir")
 rm(data, mirnas)
 
+## seq metadat 09-2023
+# batch info
+hbdx_metadat <- clean_names(readxl::read_excel(path = glue('{data_path_bestageing2022}/data/kahraman2023/230907_annotation_chrstoph_reich.xlsx')))  # has also multiclass col + diagnoses
+#RIN
+rin_mean <- mean(as.numeric(hbdx_metadat$rin), na.rm=TRUE)
+rin_sd <- sd(as.numeric(hbdx_metadat$rin), na.rm=TRUE)
+
+# detection matrix
+det_mat_all_mirnas <- read.table("/Volumes/T7CR/data/bestageing2022/data/kahraman2023/det_mat_all_mirnas.txt") %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  clean_names()
+colnames(det_mat_all_mirnas) <- str_replace(string = colnames(det_mat_all_mirnas), pattern = "mi_r", replacement = "mir")
+rownames(det_mat_all_mirnas) <- gsub("\\.", "-", rownames(det_mat_all_mirnas))
+# convert to tibble
+det_mat_all_mirnas <- det_mat_all_mirnas %>% 
+  rownames_to_column(var = "pat_id") %>% 
+  as_tibble()
+
+
+# hbdx_metadat %>% select(slide_id, slide_array_id)
+unique_slide_ids <- length(unique(hbdx_metadat$slide_id))
+arrays_per_slide <- nrow(hbdx_metadat) / unique_slide_ids
+sum_duplicated_samples <- sum(duplicated(hbdx_metadat$customer_id)); index_duplicated_samples <- duplicated(hbdx_metadat$customer_id)
+duplicate_ids <- hbdx_metadat[index_duplicated_samples, ] %>% pull(customer_id)
+# check
+checked_duplicated_hbdx <- hbdx_metadat %>% 
+  filter(customer_id %in% duplicate_ids) %>% 
+  select(customer_id, date_analysis, sample_qc, array_qc) %>% arrange(customer_id)
+# remove
+hbdx_metadat <- hbdx_metadat %>% 
+  distinct(customer_id, .keep_all = TRUE)
+
 # load-mirnas-from_research
 # create vector of described mirnas
-load("/mnt/users/reich/BestAgeing/data_research/fromR/researchMiRNAAccession.rda")
+load(glue("{data_path_BestAgeing}/data_research/fromR/researchMiRNAAccession.rda"))
 # check if all mirnas are named the same
 researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
   str_replace(pattern = "mi_r", replacement = "mir")
@@ -138,27 +168,26 @@ researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hs
 ###
 # load-metadat --
 ## DIAGNOSES DAT
-load(file = "/mnt/users/reich/BestAgeing/data/diagnoses_df.rda")
+load(glue("{data_path_BestAgeing}/data/diagnoses_df.rda"))
 
 ## SURVIVAL DAT
-survival_dat <- clean_names(readRDS(file = '/mnt/users/reich/rockerprojects/bestageing2022/data/202211908_XMELD_abfrage_best_ageing.rds'))# %>% 
-# original path "../../XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
+survival_dat <- clean_names(readRDS(glue("{data_path_bestageing2022}/data/202211908_XMELD_abfrage_best_ageing.rds"))) # %>% 
+# original path "/mnt/users/reich/XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
 
 ## metadata from DB
 # https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
-load(file = "/mnt/users/reich/BestAgeing/data/clean_all_meta.rda")  # created in "scripts/_prepare_metadata.R"
+load(glue("{data_path_BestAgeing}/data/clean_all_meta.rda"))  # created in "scripts/_prepare_metadata.R"
 clean_all_meta <- clean_all_meta %>% 
   mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
 # cath data? "hkdb"
 
 ## load all original metadat xlsx files again to make sure that also overlapped 
 #patients (e.g. dcm+cad) are in each group
-control_ids <- read_excel("/mnt/users/reich/BestAgeing/data/pheno_controls.xlsx") %>% 
+control_ids <- read_excel(glue("{data_path_BestAgeing}/data/pheno_controls.xlsx")) %>% 
   dplyr::pull(BestAgeingCode)
 
 # "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
 control_ids <- control_ids[control_ids != "UKL-HD-00318"]
-
 
 ###
 # START LOOP for specified combinations -------------------------------------
@@ -183,7 +212,7 @@ for (i in 1:nrow(all_combis)) {
   print(glue("|||------------------------------------------------------------------------------------------------------------|||"))
   cat("\n")
   # create parameter specific {disease}_ids
-  filename <- paste0("/mnt/users/reich/BestAgeing/data/pheno_", all_combis$diseases[i], ".xlsx")
+  filename <- glue("{data_path_BestAgeing}/data/pheno_{all_combis$diseases[i]}.xlsx")
   disease_vector <- paste0(all_combis$diseases[i], "_ids")
   assign(x = disease_vector, 
          value = read_excel(filename) %>% 
@@ -212,8 +241,12 @@ for (i in 1:nrow(all_combis)) {
   
   ## CHOOSE miRetrieve Biomarkers? -----------
   if (miRetrieveBiomarker==TRUE) {
-    path2biomarker <- glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-12-human-disease_biomarker_with_accession.rds")
-    path2biomarker_count <- glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-12-human-df_count_both_with_accession.rds")
+    path2biomarker <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-12-human-disease_biomarker_with_accession.rds")
+    path2biomarker_count <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-12-human-df_count_both_with_accession.rds")
+    # slight update 2023-09-21
+    path2biomarker <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-27-human-disease_biomarker_with_accession.rds")
+    path2biomarker_count <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-27-human-df_count_both_with_accession.rds")
+    
     human_disease_biomarker <- readRDS(file = path2biomarker)
     human_disease_biomarker_count <- readRDS(file = path2biomarker_count)
     
