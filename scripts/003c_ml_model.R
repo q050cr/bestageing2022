@@ -11,7 +11,7 @@ mount_filesystem <- TRUE
 SAVE.files <- TRUE
 
 # Define library and data paths based on system
-if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = system_name, "laptop-zim.uni-heidelberg.de")) {
+if (system_name == "MacBook-Pro-CR-2065.local" | grepl("laptop-zim.uni-heidelberg.de", system_name)) {
   lib_path <- .libPaths()[1]
   data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
   data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
@@ -33,6 +33,7 @@ require(glue, lib.loc = lib_path)
 require(janitor, lib.loc = lib_path)
 require(dplyr, lib.loc = lib_path)
 require(tidyr, lib.loc = lib_path)
+require(tibble, lib.loc = lib_path)
 require(stringr, lib.loc = lib_path)
 require(purrr, lib.loc = lib_path)
 require(ggplot2, lib.loc = lib_path)
@@ -46,6 +47,7 @@ require(dials, lib.loc = lib_path)
 require(infer, lib.loc = lib_path)
 require(modeldata, lib.loc = lib_path)
 require(tidymodels, lib.loc = lib_path)
+require(rsample, lib.loc = lib_path)
 options(tidymodels.dark = TRUE)
 ## used within tidymodels
 # "kknn", "glmnet", "ranger", "naivebayes", "kernlab", "xgboost", "nnet"
@@ -75,6 +77,8 @@ require(baguette, lib.loc = lib_path)
 require(rules, lib.loc = lib_path)
 tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
+conflicted::conflicts_prefer(dplyr::slice)
+conflicted::conflicts_prefer(dplyr::filter)
 
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
@@ -641,7 +645,7 @@ for (i in 1:nrow(all_combis)) {
     my_base_theme() +
     theme(legend.position = "none") -> plot_tune_race_ranking
   
-  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_{Sys.Date()}_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}.rds")
+  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_{Sys.Date()}_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}.svg")
   ggsave(filename = filename_plot_tune_race_ranking, plot = plot_tune_race_ranking, 
          width = 14, height = 10, 
          units = "in"  # default
