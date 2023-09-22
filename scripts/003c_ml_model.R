@@ -77,6 +77,8 @@ tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 
 
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
+
 cores <- parallel::detectCores()
 if (!grepl("mingw32", R.Version()$platform)) {
   library(doMC, lib.loc = lib_path)
@@ -361,7 +363,7 @@ for (i in 1:nrow(all_combis)) {
     step_normalize(all_numeric_predictors()) %>%  
     step_poly(all_numeric_predictors()) %>% 
     step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+    step_select_forests(all_predictors(), -c(starts_with("age"), starts_with("sex")), outcome = "disease", top_p = n_feature_select)
   #step_interact( ~all_predictors():all_predictors())
   
   # C
@@ -381,6 +383,10 @@ for (i in 1:nrow(all_combis)) {
   # sanity check
   prepped_rec <- prep(normalized_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
   test_baked_train <- bake(prepped_rec, new_data = dat_train)
+  
+  prepped_rec <- prep(poly_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
+  test_baked_train <- bake(prepped_rec, new_data = dat_train)
+  
   
   ###
   # specs-parsnip ----------------------------------------------------------
@@ -493,7 +499,7 @@ for (i in 1:nrow(all_combis)) {
   ## data dependent: mtry(), sample_size(), num_terms(), num_comp()
   set.seed(123)
   
-  grid_size <- 100
+  grid_size <- 500
   # CAVE RF and XGB max mtry must be in range of predictors!
   grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
     extract_parameter_set_dials() %>% 
@@ -545,6 +551,8 @@ for (i in 1:nrow(all_combis)) {
     option_add(grid = grid_neural_network, id = "neural_network") %>% 
     option_add(grid = grid_full_quad_logistic_reg, id = "full_quad_logistic_reg") %>% 
     option_add(grid = grid_KNN, id = "full_quad_KNN")   # same hyperparams
+  
+  #all_workflows <- all_workflows %>% slice(8:9)
   
   # # debug
   # all_workflows <- all_workflows %>% 
