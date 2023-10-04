@@ -3,6 +3,8 @@
 # this script is sourced from `scripts/render_param_reports.R`
 # selection provided by `all_combis$diseases` and `all_combis$analysis`
 
+# update in 003c script: received detection matrix from hummingbird dx, filtered based on this matrix
+
 # scripts saves tuned models (not finalized) to: "./output/tuning_results/"
 
 # Get system name
