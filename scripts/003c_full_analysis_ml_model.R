@@ -507,7 +507,7 @@ for (i in 1:nrow(all_combis)) {
   ## data dependent: mtry(), sample_size(), num_terms(), num_comp()
   set.seed(123)
   
-  grid_size <- 10 #500
+  grid_size <- 500
   # CAVE RF and XGB max mtry must be in range of predictors!
   grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
     extract_parameter_set_dials() %>% 
