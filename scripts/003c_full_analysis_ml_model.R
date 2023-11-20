@@ -649,7 +649,7 @@ for (i in 1:nrow(all_combis)) {
     my_base_theme() +
     theme(legend.position = "none") -> plot_tune_race_ranking
   
-  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_{Sys.Date()}_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}.svg")
+  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_randomMIR_{random_selection}.svg")
   ggsave(filename = filename_plot_tune_race_ranking, plot = plot_tune_race_ranking, 
          width = 14, height = 10, 
          units = "in"  # default
