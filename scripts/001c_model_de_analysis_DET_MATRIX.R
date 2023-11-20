@@ -208,6 +208,9 @@ control_ids <- control_ids[control_ids != "UKL-HD-00318"]
 ###
 # We apply both parametric t-tests and nonparametric U-tests
 
+# also cleaned diagnoses data for table 01 to get unique identifiers (e.g. could have diagnoses CAD and HFREF.. )
+clean_all_meta_2023_table01 <- readRDS(file = glue("{data_path_bestageing2022}/data/disease_identifier_table01/clean_all_meta_2023_table01.rds"))
+
 
 # START LOOP for specified combinations -------------------------------------
 
@@ -265,7 +268,9 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
     filter_dat <- data01 %>% select(-c(age,sex))
     
     det_mat_all_mirnas_tmp <- det_mat_all_mirnas %>% 
+      # subselect disease vs control
       filter(pat_id %in% filter_dat$pat_id) %>% 
+      # add disease identifier column
       left_join(filter_dat %>% select(pat_id, disease), by=c("pat_id")) %>% 
       relocate(disease, .after = pat_id)
     
@@ -1593,6 +1598,13 @@ ggplot(exprs_metadat, aes(PC1, PC2, color = disease)) +
   scale_fill_manual(values = thematic::okabe_ito(6)) +
   scale_color_manual(values = thematic::okabe_ito(6), name=NULL, labels = custom_labels)+
   my_base_theme() -> plot_PC1_PC2
+
+
+
+
+# ANOVA multiple group comparison -----------------------------------------
+
+
 
 
 
