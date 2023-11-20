@@ -133,8 +133,14 @@ clean_all_meta <- clean_all_meta %>% select(
   )
 
 
-clean_all_meta_tab01 <- clean_all_meta %>% 
-  filter(patID %in% all_mirnas$pat_id) %>% 
+
+# save rds with patients that have mirna data
+clean_all_meta_2023_table01 <- clean_all_meta %>% 
+  filter(patID %in% all_mirnas$pat_id)
+
+saveRDS(object = clean_all_meta_2023_table01, file = glue("{data_path_bestageing2022}/data/disease_identifier_table01/clean_all_meta_2023_table01.rds"))
+
+clean_all_meta_tab01 <- clean_all_meta_2023_table01 %>% 
   select(-patID)
 
 mean_age_overall <- mean(clean_all_meta_tab01$age, na.rm=TRUE)
