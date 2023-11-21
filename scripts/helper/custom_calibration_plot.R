@@ -262,7 +262,7 @@ custom_calibration_plot <- function(predicted_probabilities, observed_outcomes, 
     scale_fill_manual(values = thematic::okabe_ito(6), name=NULL) +
     my_base_theme()
   
-  return(list(fn_dat %>% as_tibble(), calib_plot, ridges_probs_plot, ridges_probs_plot_recalib, density_probs_plot, density_probs_plot_recalib))
+  return(list(calibration_data = fn_dat %>% as_tibble(), calib_plot=calib_plot, ridges_probs_plot=ridges_probs_plot, ridges_probs_plot_recalib=ridges_probs_plot_recalib, density_probs_plot=density_probs_plot, density_probs_plot_recalib=density_probs_plot_recalib))
 }
 
 # custom_calibration_plot(predicted_probabilities = predictions_loop[[models]][[".pred_died"]], observed_outcomes = predictions_loop[[models]]$o_mortality, outcome="died",
