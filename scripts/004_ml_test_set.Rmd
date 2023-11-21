@@ -448,7 +448,6 @@ all_workflows <-
 # need to finalize mtry - data dependent (unknown values - how many predictors?)
 ## data dependent: mtry(), sample_size(), num_terms(), num_comp()
 set.seed(123)
-set.seed(123)
 if (params$analysis == "selected") {
   # only 114 mirnas in analysis or even less 50 if miRetrieve is TRUE
   grid_RF <- rand_forest_ranger_spec %>%   # 2 hyperparams
@@ -520,7 +519,7 @@ all_workflows <- all_workflows %>%
 ```
 
 
-### Efficiently screening models
+## Efficiently screening models
 
 ```{r workflow-sets-race}
 ## outsourced to `scripts/model.R`
