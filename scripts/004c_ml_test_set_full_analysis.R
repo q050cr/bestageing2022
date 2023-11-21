@@ -1,10 +1,29 @@
 
+# libraries
+require(probably)
+require(patchwork)
+require(probably)
+library(DALEXtra)
+library(flextable)
+library(officer)
+library(glue)
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_calibration_plot.R"))
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_vip_plot.R"))
 
 save.FILE=TRUE
 
+# for word export
+sect_properties <- prop_section(
+  page_size = page_size(
+    orient = "portrait",  # "portrait" "landscape"
+    width = 8.3, height = 14
+  ),
+  type = "continuous",
+  page_margins = page_mar(),
+  #section_columns = section_columns(widths = c(4.75, 4.75))
+)
 
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
@@ -200,18 +219,289 @@ for (i in 1:nrow(all_combis)){
       )
     }
     
+    # CALIBRATION ------------------------------------------------------------
+    calibration_plot <- predictions_loop[[models]] %>% 
+      cal_plot_breaks(disease, .data[[pred_string]], event_level = "second", num_breaks = 8,
+                      include_points = FALSE) +
+      theme_minimal(base_size = 16, base_family = 'Arial')+
+      scale_fill_manual(values = thematic::okabe_ito(6), name=NULL) +
+      my_base_theme()
+    #print(calibration_plot)
     
-    ## factor order usually alphabetically! (acs < control)
-    predictions_loop[[models]] <- predictions_loop[[models]] %>% 
-      mutate(.pred_class_youden = factor(.pred_class_youden, levels=c("control", params$disease)),
-             disease = factor(disease, levels=c("control", params$disease)),
-      )   
+    custom_cal_plots <- custom_calibration_plot(predicted_probabilities = predictions_loop[[models]][[pred_string]], 
+                             observed_outcomes = predictions_loop[[models]]$disease, 
+                             outcome=all_combis$diseases[i],
+                             recalibration=FALSE)
     
-    gbm::calibrate.plot(y = predictions_loop[[models]]$disease, p = predictions_loop[[models]][[pred_string]], 
-                        main=paste(wflow_id, "-Calibration Plot | ", sep=""), 
-                        line.par = list(col = "black"), shade.col="grey", xlim=c(0,0.6))
+    # adjust_legend
+    custom_cal_plots$ridges_probs_plot <- custom_cal_plots$ridges_probs_plot+
+      scale_fill_manual(name = NULL, labels = toupper, values = thematic::okabe_ito(6))
+    
+    
+    ## Patchwork plot -------------------------------------------------------
+    patchwork_roc_calib <- (calibration_plot | (roc_plot_test / custom_cal_plots$ridges_probs_plot)) +  # 2nd brackets needed for labels
+      plot_annotation(tag_levels = 'A')
+    patchwork_roc_calib <- patchwork_roc_calib + plot_layout(widths = c(2, 1))
+    # patchwork_roc_calib
+    
+    # 4 plots
+    # layout <- (calibration_plot + (roc_plot_test / custom_cal_plots$ridges_probs_plot) + calibration_plot) +
+    #   plot_annotation(tag_levels = 'A')
+    
+    filename_plot_patchwork_ROC_calib <- 
+      glue("{data_path_bestageing2022}/output/plots/ml_roc_calib_patchwork/{all_combis$diseases[i]}/004c_patchwork_ROC_calib_{wflow_id}_analysis_full_analysis_m20")
+    
+    ggsave(filename = glue("{filename_plot_patchwork_ROC_calib}.svg"), 
+           plot = patchwork_roc_calib, 
+           width = 12, height = 8, 
+           units = "in"
+    )
+    saveRDS(object = patchwork_roc_calib, file = glue("{filename_plot_patchwork_ROC_calib}.rds"))  # store for later patchwork
+    
+    # next model
   }
   
+  # summarize all models --------------------------------------
+  performance.summary.table.sens09 <- tibble(
+    model = race_results$wflow_id,
+    AUC = round(aucs,2), 
+    accuracy = round(accuracies_sens09,2),
+    sensitivity = round(sensitiv_sens09, 2),
+    specificity = round(specific_sens09, 2),
+    ppv = round(ppv_sens09,2),
+    npv= round(npv_sens09,2), 
+    precision= round(precision_sens09,2), 
+    recall= round(recall_sens09,2), 
+    f1.score =round(f1_sens09,2)
+  ) %>% 
+    arrange(desc(AUC))
+  
+  filename_df_performance_summary_sens09 <- 
+    glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/004c_performance_summary_table_analysis_full_analysis_m20.rds")
+  saveRDS(object = performance.summary.table.sens09, file = filename_df_performance_summary_sens09)
+  
+  # next disease
+  message(glue("---------Run finished for disease: {toupper(all_combis$diseases[i])}---------------"))
+  
+}
+
+
+
+# Feature Importance ---------------------------------------------------------
+
+for (i in 1:nrow(all_combis)){
+  # need to get data split right to finalize model
+  path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[i]}_data01.rds")
+  if(!file.exists(path2dataprocessed)) {
+    next
+  }
+  
+  data01 <- readRDS(file = path2dataprocessed)
+  no.mirnas <- ncol(data01) - 4
+  text_disease <- stringr::str_to_upper(all_combis$diseases[i])
+  set.seed(123) # get same indices 
+  modeldat <- data01
+  
+  # make control first factor for all analyses ;)
+  modeldat <- modeldat %>% 
+    mutate(disease = factor(disease, levels = c("control", all_combis$diseases[i])))
+  
+  dat_split <- rsample::initial_split(modeldat, strata = disease)
+  dat_train <- training(dat_split)
+  dat_test <- testing(dat_split)
+  
+  folds <- vfold_cv(dat_train, strata = disease, v = no_folds, repeats = no_repeats)
+  
+  n_feature_select <- 20  # how many mirna select in training?
+  normalized_rec <- 
+    recipe(disease ~ ., data = dat_train) %>%
+    ### https://recipes.tidymodels.org/articles/Ordering.html
+    #  To make sure we don’t get any unexpected results, it’s best to use 
+    #  the following ordering of high-level transformations:
+    #     Skewness Transformations - step_YeoJohnson()
+    #     Centering, Scaling, or Normalization on Numeric Predictors
+    #     Dummy Variables for Categorical Data
+    update_role(pat_id, new_role="ID") %>% 
+    step_zv(all_predictors()) %>%  
+    step_impute_mean(all_numeric_predictors()) %>% 
+    step_impute_mode(all_nominal_predictors(), -disease) %>% 
+    step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
+    step_YeoJohnson() %>% 
+    step_normalize(all_numeric_predictors()) %>%  
+    step_dummy(all_nominal_predictors(),-disease) %>% 
+    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+  # B
+  poly_rec <- 
+    recipe(disease ~ ., data = dat_train) %>%
+    update_role(pat_id, new_role="ID") %>% 
+    step_zv(all_predictors()) %>%  
+    step_impute_mean(all_numeric_predictors()) %>% 
+    step_impute_mode(all_nominal_predictors(), -disease) %>% 
+    step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
+    step_normalize(all_numeric_predictors()) %>%  
+    step_poly(all_numeric_predictors()) %>% 
+    step_dummy(all_nominal_predictors(),-disease) %>% 
+    step_select_forests(all_predictors(), -c(starts_with("age"), starts_with("sex")), outcome = "disease", top_p = n_feature_select)
+  #step_interact( ~all_predictors():all_predictors())
+  
+  # C
+  simple_rec <- 
+    recipe(disease ~ ., data = dat_train) %>%
+    update_role(pat_id, new_role="ID") %>% 
+    # ZERO VARIANCE
+    step_zv(all_predictors()) %>%  
+    # IMPUTE
+    step_impute_mean(all_numeric_predictors()) %>% 
+    step_impute_mode(all_nominal_predictors(), -disease) %>% 
+    # DECORRELATE
+    step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
+    step_dummy(all_nominal_predictors(),-disease) %>% 
+    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+  
+  
+  race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE.rds"))
+  
+  ### filter first, vip takes long, and we do not like all models ;) ------------
+  race_results %>% 
+    filter(!wflow_id %in% c("neural_network")) %>% 
+    filter(!stringr::str_detect(wflow_id, "KNN"))
+  
+  # common selected vars from models
+  commmon_vars_list <- list()
+  
+  # now vip for all models
+  for (models in seq_along(1:nrow(race_results)) ) {
+    ## retrieve ID
+    wflow_id <- race_results[[1]][models]  # wflow_id column
+    # select best hyperparams
+    best_results[[models]] <- 
+      race_results %>% 
+      extract_workflow_set_result(wflow_id) %>% 
+      select_best(metric = "roc_auc")
+    # fit to training data, and calculate on test data
+    test_results[[models]] <- 
+      race_results %>% 
+      extract_workflow(wflow_id) %>% 
+      finalize_workflow(best_results[[models]]) %>% 
+      last_fit(split = dat_split)
+    
+    last_fit_metrics <- collect_metrics(test_results[[models]])
+    # extract model
+    last_fit_model <- extract_workflow(test_results[[models]])
+    
+    ## Global Explanations --------------------------------------------------------
+    # We compute variable importance by permutating features. If shuffling a column causes a large degradation in model performance, it is important and vica versa. This approach is model agnostic. 
+    
+    model_vars <- simple_rec %>% summary()
+    index <- #model_vars$variable != "id" &    # needed for global importance since in recipe
+      model_vars$variable != "disease" #& (model_vars$role == "predictor" | model_vars$role == "outcome")
+    # modify data
+    predictor_vars <- model_vars[["variable"]][index]
+
+      
+    
+    vip_train <- dat_train %>% select(all_of(predictor_vars))  # although we used feature selection, all vars must be present.. takes time
+    
+    # create explainers | top model
+    explainer1 <- 
+      explain_tidymodels(
+        last_fit_model, 
+        data = vip_train, #eval(as.symbol(recipe_models$recipe[models])) %>% prep() %>% bake(new_data = NULL, all_predictors(), all_outcomes()),  #vip_train, 
+        y = as.numeric(dat_train$disease), 
+        label = wflow_id,
+        verbose=FALSE
+      )
+    
+    # variable importance takes time
+    vip1 <- model_parts(explainer = explainer1, 
+                        loss_function = loss_default("classification")    #  # loss_default(explainer_xgb$model_info$type) "One minus AUC"
+    )
+    
+    saveRDS(vip1, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_{wflow_id}_vip1.rds"))
+    
+    # cave used feature selection, but cannot supply less vars to explain tidymodels
+    predictor_vars_tmp <- extract_recipe(last_fit_model) %>% 
+      summary() %>% 
+      filter(str_detect(variable, "hsa_mir")) %>% 
+      pull(variable) %>% 
+      c("pat_id", "age", "sex")
+    
+    vip1_tmp <- vip1 %>% 
+      filter(variable %in% predictor_vars_tmp | variable == "_full_model_" | variable == "_baseline_")
+    
+    metric_name <- attr(vip1_tmp, "loss_name")
+    
+    # 
+    features_importance_table <- vip1_tmp %>% 
+      group_by(variable) %>% 
+      filter(variable != "_baseline_" & variable != "pat_id") %>% 
+      summarize(dropout_loss = mean(dropout_loss)) %>% 
+      arrange((dropout_loss))
+    
+    saveRDS(features_importance_table, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_{wflow_id}_features_importance_table.rds"))
+    
+    common_vars_new <- setNames(list(features_importance_table$variable), wflow_id)
+    
+    commmon_vars_list <- c(commmon_vars_list, common_vars_new)
+    
+    variable_imp_plot <- ggplot_imp(vip1_tmp)
+    variable_imp_plot
+    
+    vip_plot_filename <- glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_{wflow_id}_variable_imp_plot.svg")
+    ggsave(
+      filename = vip_plot_filename, plot = variable_imp_plot, 
+      width = 6, height = 6, 
+      units = "in"  # default
+    )
+    
+    # next model
+  }
+  
+  ## Common Vars in final models ----------------------------------------------
+  # selected features calculating intersections
+  intersections <- gplots::venn(commmon_vars_list)
+  list_of_intersections <- attr(intersections, "intersections")
+  
+  # Displaying the intersections
+  intersections_diseases <- tibble(
+    Intersection = character(),
+    Variables = character(), 
+    count_intersections = integer()
+  )
+  for (name in seq_along(list_of_intersections)) {
+    intersection_name <- names(list_of_intersections[name])
+    variables_joined <- paste(gsub("_", "-", list_of_intersections[[name]]), collapse = ", ")
+    no_variables <- length(list_of_intersections[[name]])
+    
+    cat(intersection_name, ":\n", variables_joined, "\n\n")
+    
+    intersections_diseases <- intersections_diseases %>% 
+      add_row(Intersection = intersection_name, Variables = variables_joined, count_intersections = no_variables)
+  }
+  
+  intersections_diseases <- intersections_diseases %>% arrange(desc(count_intersections))
+  saveRDS(object = intersections_diseases, file = glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.rds"))
+  write.csv2(x = intersections_diseases, file=glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.csv"))
+  
+  # intersections_diseases %>% 
+  #   kableExtra::kable(digits = 3, caption = "Intersection of variables in the top 10 VIPs of each model",) %>%
+  #   kableExtra::kable_styling(font_size=12) %>% 
+  #   kableExtra::kable_classic(full_width = T) %>% 
+  #   kableExtra::save_kable()
+  
+  file_path <- glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.docx")
+  intersections_diseases_flextable <- flextable(intersections_diseases) %>% 
+    colformat_double(
+      big.mark = ",", digits = 3, na_str = "N/A"
+    ) %>% 
+    set_table_properties(layout = "autofit", align= "left") %>%
+    fontsize(size = 8, part = "all") %>% 
+    flextable::font(fontname = "Times New Roman", part = "all") %>%
+    autofit() %>% 
+    save_as_docx(path=file_path, pr_section = sect_properties)
+  
+  # next disease
+  message(glue("-------------Run finished for disease: {toupper(all_combis$diseases[i])}-------------------"))
 }
 
 
