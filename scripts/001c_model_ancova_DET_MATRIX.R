@@ -1,6 +1,17 @@
 
 # run script 001c_model_de_an... first
 
+convert_mir_name <- function(name) {
+  # Replace 'mir' with 'miR'
+  name <- gsub("mir", "miR", name)
+  
+  # Replace underscores with hyphens
+  name <- gsub("_", "-", name)
+  
+  return(name)
+}
+
+convert_mir_name_V <- Vectorize(convert_mir_name)
 
 # PREPARE DATA TO RUN ANOVA ----------------------------------------------------
 clean_all_meta_2023_table01 <- readRDS(file = glue("{data_path_bestageing2022}/data/disease_identifier_table01/clean_all_meta_2023_table01.rds"))
@@ -480,17 +491,7 @@ if (runTests == TRUE){  #takes time
 }
 
 
-convert_mir_name <- function(name) {
-  # Replace 'mir' with 'miR'
-  name <- gsub("mir", "miR", name)
-  
-  # Replace underscores with hyphens
-  name <- gsub("_", "-", name)
-  
-  return(name)
-}
 
-convert_mir_name_V <- Vectorize(convert_mir_name)
 
 anova.results.xlsx <- anova.results %>% 
   select(-sign_indicator) %>% 
@@ -500,6 +501,23 @@ anova.results.xlsx <- anova.results %>%
 filename.anova.xlsx <- glue("{data_path_bestageing2022}/output/de_results/anova/001c_anova_results_batch_corrected.xlsx")
 write.xlsx(anova.results.xlsx, file = filename.anova.xlsx)
 
+
+# read?
+anova.results <- readRDS(glue("{data_path_bestageing2022}/output/de_results/anova/001c_anova_results_batch_corrected.rds"))
+emmeans_1_pairs <- readRDS(glue("{data_path_bestageing2022}/output/de_results/anova/001c_emmeans_results_batch_corrected.rds"))
+
+# top 5 dysregulated miRNAs
+anova.results_top5 <- anova.results %>% 
+  slice(1:5)
+top5_anova_mirnas <- anova.results_top5 %>% pull(miRNA)
+
+emmeans_1_pairs_anova_top5 <- emmeans_1_pairs %>% 
+  filter(miRNA %in% top5_anova_mirnas) %>% 
+  filter(p.value < 0.05) %>% 
+  arrange(match(miRNA, top5_anova_mirnas))  %>% #  arranges the rows in the order specified by the top5_anova_mirnas vector
+  mutate(miRNA = convert_mir_name_V(miRNA))
+
+# Word export ----------------------------------------------------------------
 # https://cran.r-project.org/web/packages/gtsummary/vignettes/rmarkdown.html#:~:text=%7Bflextable%7D%20is%20the%20default%20print,table%20printed%20with%20%7Bgt%7D.
 library(flextable) # {flextable} is the default print engine for Word output, as {gt} does not support Word. If {flextable} is not installed, kable is used.
 library(officer)
@@ -516,8 +534,9 @@ sect_properties <- prop_section(
   type = "continuous",
   page_margins = page_mar()
 )
-file_path <- glue("{data_path_bestageing2022}/output/de_results/anova/001c_anova_results_batch_corrected.docx")
 
+# table 1
+file_path <- glue("{data_path_bestageing2022}/output/de_results/anova/001c_anova_results_batch_corrected.docx")
 anova_flextable <- flextable(anova.results.xlsx) %>% 
   colformat_double(
     big.mark = ",", digits = 2, na_str = "N/A"
@@ -528,3 +547,40 @@ anova_flextable <- flextable(anova.results.xlsx) %>%
   autofit() %>% 
   save_as_docx(path=file_path, pr_section = sect_properties)
 
+
+# table 2 emmeans top
+emmeans_1_pairs_anova_top5.word <- emmeans_1_pairs_anova_top5
+emmeans_1_pairs_anova_top5.word$p.value <- sprintf("%.2E", emmeans_1_pairs_anova_top5.word$p.value) 
+
+file_path_emmeans <- glue("{data_path_bestageing2022}/output/de_results/anova/001c_anova_emmeansTOP_results_batch_corrected.docx")
+
+emmeans_1_pairs_anova_top5.word_dcm_ref <- emmeans_1_pairs_anova_top5.word %>% 
+  group_by(contrast) %>% 
+  filter( contrast == "control - dcm" | contrast == "control - ref") %>% 
+  ungroup()
+
+anova_flextable <- flextable(emmeans_1_pairs_anova_top5.word) %>% 
+  colformat_double(
+    big.mark = ",", digits = 3, na_str = "N/A"
+  ) %>% 
+  set_table_properties(layout = "autofit") %>%
+  fontsize(size = 11, part = "all") %>% 
+  flextable::font(fontname = "Times New Roman", part = "all") %>%
+  autofit() %>% 
+  save_as_docx(path=file_path_emmeans, pr_section = sect_properties)
+
+# text 
+# mirnas
+glue("The top 5 dysregulated miRNAs were {top5_anova_mirnas[1]}, {top5_anova_mirnas[2]}, {top5_anova_mirnas[3]}, {top5_anova_mirnas[4]}, and {top5_anova_mirnas[5]}.")
+# mean [sd]
+glue("Mean expression for {top5_anova_mirnas[1]} [standard deviaton] of control {round(anova.results.xlsx$mean.cont[1],3)} [{round(anova.results.xlsx$sd.cont[1],3)}] vs. DCM {round(anova.results.xlsx$mean.dcm[1],3)} [{round(anova.results.xlsx$sd.dcm[1],3)}] (adj.p-val={emmeans_1_pairs_anova_top5.word_dcm_ref$p.value[1]}) vs. HFrEF {round(anova.results.xlsx$mean.ref[1],3)} [{round(anova.results.xlsx$sd.ref[1],3)}] (adj. p-val={emmeans_1_pairs_anova_top5.word_dcm_ref$p.value[2]})")
+glue("Mean expression [standard deviaton] of control {round(anova.results.xlsx$mean.cont[2],3)} [{round(anova.results.xlsx$sd.cont[2],3)}] vs. DCM {round(anova.results.xlsx$mean.dcm[2],3)} [{round(anova.results.xlsx$sd.dcm[2],3)}] (adj. p-val={emmeans_1_pairs_anova_top5.word_dcm_ref$p.value[3]}) vs. HFrEF {round(anova.results.xlsx$mean.ref[2],3)} [{round(anova.results.xlsx$sd.ref[2],3)}] (adj. p-val={emmeans_1_pairs_anova_top5.word_dcm_ref$p.value[4]})")
+
+for (i in 1:5) {
+  expression_string <- glue("Mean expression for {convert_mir_name_V(top5_anova_mirnas[i])} [standard deviation] of control {round(anova.results.xlsx$mean.cont[i],3)} [{round(anova.results.xlsx$sd.cont[i],3)}] vs. DCM {round(anova.results.xlsx$mean.dcm[i],3)} [{round(anova.results.xlsx$sd.dcm[i],3)}] (adj.p-val={emmeans_1_pairs_anova_top5.word_dcm_ref$p.value[2*i-1]}) vs. HFrEF {round(anova.results.xlsx$mean.ref[i],3)} [{round(anova.results.xlsx$sd.ref[i],3)}] (adj. p-val={emmeans_1_pairs_anova_top5.word_dcm_ref$p.value[2*i]})")
+  print(expression_string)
+}
+
+# p-value
+glue("p-value: {anova.results.xlsx$anova_rawp[1]}")
+emmeans_1_pairs_anova_top5.word_dcm_ref$p.value[1]

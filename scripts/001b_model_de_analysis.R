@@ -4,6 +4,8 @@
 # this script is sourced from `scripts/render_param_reports.R`
 # selection provided by `all_combis$diseases` and `all_combis$analysis`
 
+# 001b adds steps for detection matrix filtering and batch removal (df received from hbdx)
+
 # script creates plots: "fig01vogel2013", "fig02vogel2013"
 
 
@@ -1281,8 +1283,8 @@ for (name in seq_along(list_of_intersections)) {
     add_row(Intersection = intersection_name, miRNAs = miRNAs_joined, count_intersections = no_mirnas)
 }
 
-intersections_diseases <- intersections_diseases %>% arrange(desc(count_intersections))
-write.csv2(x = intersections_diseases, file = glue("{data_path_bestageing2022}/output/tables/venn_dia/top50perdisease_venn.csv"))
+intersections_diseases <- intersections_diseases %>% arrange(desc(count_intersections)) 
+# write.csv2(x = intersections_diseases, file = glue("{data_path_bestageing2022}/output/tables/venn_dia/top50perdisease_venn.csv"))
 
 length(unique(miRetrieve_alldiseases$TargetName))
 
