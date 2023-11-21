@@ -2,6 +2,19 @@
 library(ggplot2)
 library(thematic)
 library(dplyr)
+library(forcats)
+
+
+convert_mir_name <- function(name) {
+  # Replace 'mir' with 'miR'
+  name <- gsub("mir", "miR", name)
+  
+  # Replace underscores with hyphens
+  name <- gsub("_", "-", name)
+  
+  return(name)
+}
+convert_mir_name_V <- Vectorize(convert_mir_name)
 
 # custom TMwR plot function p 292
 ggplot_imp <- function(...) {
@@ -11,46 +24,16 @@ ggplot_imp <- function(...) {
                       "after permutations\n(Global Feature Importance)")
   
   full_vip <- bind_rows(obj) %>%
-    filter(variable != "_baseline_" & variable != "rapID" & variable != "source") %>% 
-    mutate(variable = case_when(
-      variable == "age"                 ~ "Age",
-      variable == "t0_na_value"         ~ "Sodium",
-      variable == "t0_inr_value"        ~ "INR",
-      variable == "t0_hstnt_value"     ~ "hs-TroponinT",
-      variable == "grace_score"        ~ "GRACE Score",
-      variable == "vit_herzfrequenz"   ~ "Heart Rate",
-      variable == "t0_crp_value"       ~ "CRP",
-      variable == "t0_ck_value"        ~ "CK",
-      variable == "t0_thrombo_value"   ~ "Thrombocytes",
-      variable == "t0_gluc_value"      ~ "Glucose",
-      variable == "t0_hb_value"        ~ "Hemoglobin",
-      variable == "vit_rr_syst"        ~ "Systolic BP",
-      variable == "t0_krea_value"      ~ "Creatinine",
-      variable == "t0_leuko_value"     ~ "Leucocytes",
-      variable == "symptombeginn"      ~ "Symptom Onset",
-      variable == "h_khk"              ~ "CHD History",
-      variable == "ekg_sinus_normal"   ~ "Normal Sinus ECG",
-      variable == "aktiver_raucher"    ~ "Current Smoker",
-      variable == "h_cholesterin"      ~ "Cholesterol History",
-      variable == "sex_f1_m0"          ~ "Sex", # Assuming 1 is Female and 0 is Male
-      variable == "h_familienana"      ~ "Family History",
-      variable == "ekg_st_senkung"     ~ "ECG ST Depression",
-      variable == "ekg_schrittmacher"  ~ "Pacemaker ECG",
-      variable == "h_diabetes"         ~ "Diabetes History",
-      variable == "h_lvdys_grad_BINARY"~ "LV Dysfunction",
-      variable == "h_hypertonie"       ~ "Hypertension History",
-      variable == "t0_ntbnp_value"     ~ "NTproBNP",
-      variable == "t0_ckdepi_value"    ~ "GFR",
-      .default = variable                 
-    ))
+    filter(variable != "_baseline_" & variable != "pat_id") %>% 
+    mutate(variable = convert_mir_name_V(variable))
   
   perm_vals <- full_vip %>% 
-    filter(variable == "_full_model_") %>% 
+    filter(variable == "-full-model-") %>% 
     group_by(label) %>% 
     summarise(dropout_loss = mean(dropout_loss))
   
   p <- full_vip %>%
-    filter(variable != "_full_model_") %>% 
+    filter(variable != "-full-model-") %>% 
     mutate(variable = fct_reorder(variable, dropout_loss)) %>%
     ggplot(aes(dropout_loss, variable)) 
   if(length(obj) > 1) {
