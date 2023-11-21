@@ -174,7 +174,7 @@ prepare_gt_dat1 %>%
   ) %>% 
   group_by(Topic) %>% 
   # THIS ALLOWS THE ORDERING OF THE SPANNERS! 
-  arrange(Topic, desc(auc), desc(max_value)) %>% 
+  arrange(Topic, padj, desc(max_value)) %>%  # arrange(Topic, desc(auc), desc(max_value))
   slice(1:5) %>%   # only top 5
   relocate(
     max_value, .after = Accession
@@ -221,7 +221,7 @@ prepare_gt_dat1 %>%
     locations = cells_body(columns = rocaucs),
     fn = function(x) {
       gt_plot_list$rocaucs |>   # cave if ordering changed!!
-        ggplot_image(height = px(20))  # had 100 before
+        ggplot_image(height = px(50))  # had 100 before
       #prepare_gt_dat$rocaucs |>
       #  ggplot_image(height = px(100))
     }
@@ -262,6 +262,9 @@ prepare_gt_dat1 %>%
     starts_with("p.adj") ~ px(40),
     PMIDs ~ px(150),
     everything() ~ px(50)
+  ) %>% 
+  tab_options(
+    table.font.size = px(10L)
   ) -> gt_literature_miRetrieve
 
 gt_literature_miRetrieve

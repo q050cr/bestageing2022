@@ -2,12 +2,24 @@
 ### INFO ----------------------------------------------------------------------
 # Differential miRNA Expression Analysis Sensitivity Analysis
 
+# primary analysis
 # update in 001c script: received detection matrix from hummingbird dx, filtered based on this matrix
 
 # this script is sourced from `scripts/render_param_reports.R`
 # selection provided by `all_combis$diseases` and `all_combis$analysis`
 
 # script creates plots: "fig01vogel2013", "fig02vogel2013"
+
+convert_mir_name <- function(name) {
+  # Replace 'mir' with 'miR'
+  name <- gsub("mir", "miR", name)
+  
+  # Replace underscores with hyphens
+  name <- gsub("_", "-", name)
+  
+  return(name)
+}
+convert_mir_name_V <- Vectorize(convert_mir_name)
 
 
 # Get system name
@@ -1570,7 +1582,7 @@ combined_plot
 
 
 # OUTLIER Detection -------------------------------------------------------
-# also dealth with outliers when using robust regression methods
+# also dealth with outliers when using robust regression methods, outliers were also mainly removed after aplying batch removal! (see PC plots)
 
 mahalanobis_distances <- mahalanobis(pca_df[,c("PC1", "PC2")], colMeans(pca_df[,c("PC1", "PC2")]), cov(pca_df[,c("PC1", "PC2")]))
 outliers <- which(mahalanobis_distances > qchisq(0.995, df = 2))
@@ -1601,8 +1613,59 @@ ggplot(exprs_metadat, aes(PC1, PC2, color = disease)) +
 
 
 
+# report test results table ------------------------------------------------
 
-# ANOVA multiple group comparison -----------------------------------------
+library(flextable) # {flextable} is the default print engine for Word output, as {gt} does not support Word. If {flextable} is not installed, kable is used.
+library(officer)
+
+# for word export
+sect_properties <- prop_section(
+  page_size = page_size(
+    orient = "portrait",  # "portrait" "landscape"
+    width = 8.3, height = 14
+  ),
+  type = "continuous",
+  page_margins = page_mar(),
+  #section_columns = section_columns(widths = c(4.75, 4.75))
+)
+
+for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
+  # de.results_old <- readRDS(dplyr::last(list.files(path = "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022/output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
+  path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[mydisease]}_data01.rds")
+  data01 <- readRDS(file = path2dataprocessed)
+  # cave_dot here!!
+  de.results <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_de_results_batch_corrected.rds"))
+  results_logmedians <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_results_logmedians_batch_corrected.rds"))
+  
+  # get table in shape
+  de.results_tmp <- de.results %>% 
+    mutate(miRNA = convert_mir_name_V(miRNA)) %>% 
+    mutate(ttest_adjp = p.adjust(pval.t.test, method = "holm", n = length(de.results$pval.t.test)) ) %>% 
+    mutate(glm_adjp = p.adjust(pval.glm, method = "holm", n = length(de.results$pval.t.test)) ) %>%
+    mutate(glm_pca_adjp = p.adjust(pval.glm_pca, method = "holm", n = length(de.results$pval.t.test)) ) %>%
+    rename(ttest_rawp = pval.t.test, glm_rawp=pval.glm, glm_pca_rawp = pval.glm_pca, AUC = aucs_univariate) %>%
+    select(miRNA, ttest_rawp, ttest_adjp, glm_rawp, glm_pca_rawp, AUC, log2FoldChange) %>% 
+    arrange(ttest_rawp) 
+  
+  de.results_tmp_word <- de.results_tmp %>% 
+    mutate(across(where(is.numeric) & !all_of(c("AUC", "log2FoldChange")), ~ sprintf("%.2E", .)))
+  
+  file_path <- glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_de_results_batch_corrected.docx")
+  
+  # table 
+  de_results_flextable <- flextable(de.results_tmp_word) %>% 
+    colformat_double(
+      big.mark = ",", digits = 3, na_str = "N/A"
+    ) %>% 
+    set_table_properties(layout = "autofit", align= "left") %>%
+    fontsize(size = 8, part = "all") %>% 
+    flextable::font(fontname = "Times New Roman", part = "all") %>%
+    autofit() %>% 
+    save_as_docx(path=file_path, pr_section = sect_properties)
+  
+}
+
+
 
 
 

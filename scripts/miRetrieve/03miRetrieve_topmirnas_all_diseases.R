@@ -262,8 +262,8 @@ miRetrieve_alldiseases <- miRetrieve_alldiseases[-1, ]
 table_mirna_top50bm_score_alldiseases <- table_mirna_top50bm_score_alldiseases[-1, ]
 # save
 if (SAVE.files ==TRUE) {
-  saveRDS(object = miRetrieve_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/{Sys.Date()}_top50mirnas_all_diseases.rds"))  # old
-  saveRDS(object = table_mirna_top50bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/{Sys.Date()}_top50mirnas_all_diseases_pmids_gpt.rds"))  # new
+  saveRDS(object = miRetrieve_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/top50mirnas_all_diseases.rds"))  # old
+  saveRDS(object = table_mirna_top50bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/top50mirnas_all_diseases_pmids_gpt.rds"))  # new
 }
 
 length(unique(miRetrieve_alldiseases$Accession))
@@ -275,8 +275,8 @@ miRetrieve_alldiseases_ALL <- miRetrieve_alldiseases_ALL[-1, ]
 table_mirna_ALL_bm_score_alldiseases <- table_mirna_ALL_bm_score_alldiseases[-1, ]
 # save
 if (SAVE.files ==TRUE) {
-  saveRDS(object = miRetrieve_alldiseases_ALL, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/{Sys.Date()}_ALL_bm_mirnas_all_diseases.rds"))  # old
-  saveRDS(object = table_mirna_ALL_bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/{Sys.Date()}_ALL_bm_mirnas_all_diseases_pmids_gpt.rds"))  # new
+  saveRDS(object = miRetrieve_alldiseases_ALL, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/ALL_bm_mirnas_all_diseases.rds"))  # old
+  saveRDS(object = table_mirna_ALL_bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/ALL_bm_mirnas_all_diseases_pmids_gpt.rds"))  # new
 }
 
 
