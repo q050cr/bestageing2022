@@ -34,6 +34,13 @@ if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = sy
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_performance_summary_barplot.R"))
 
 
+
+# A) selected analysis -------------------------------------------------------
+
+
+# B) full analysis not matched -----------------------------------------------
+
+
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
 all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
@@ -86,4 +93,4 @@ for (i in 1:nrow(all_combis) ) {
   
 }
 
-
+# C) full analysis matched -----------------------------------------------
