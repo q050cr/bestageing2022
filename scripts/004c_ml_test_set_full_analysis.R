@@ -1,5 +1,32 @@
 
-# libraries
+
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
+
+no_folds = 5
+no_repeats = 10
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local" | grepl("laptop-zim.uni-heidelberg.de", system_name)) {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  .libPaths("/mnt/users/reich/programs/R43/lib")
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
+
+# libraries -------------------------------------------------------------------
+require(tidyverse)
 require(probably)
 require(patchwork)
 require(probably)
@@ -7,12 +34,13 @@ library(DALEXtra)
 library(flextable)
 library(officer)
 library(glue)
+require(colino, lib.loc = lib_path)
+require(tidymodels)
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_calibration_plot.R"))
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_vip_plot.R"))
 
-save.FILE=TRUE
 
 # for word export
 sect_properties <- prop_section(
@@ -30,6 +58,8 @@ analysis <- c("selected", "full")
 all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
   filter(analysis=="full")
 
+
+# run analysis on test set for each disease ....................................
 for (i in 1:nrow(all_combis)){
   # need to get data split right to finalize model
   path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[i]}_data01.rds")
@@ -50,10 +80,7 @@ for (i in 1:nrow(all_combis)){
   dat_split <- rsample::initial_split(modeldat, strata = disease)
   dat_train <- training(dat_split)
   dat_test <- testing(dat_split)
-  
   folds <- vfold_cv(dat_train, strata = disease, v = no_folds, repeats = no_repeats)
-  
-  
   
   # load race results ---------------------------------------------------------
   race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE.rds"))
@@ -370,6 +397,10 @@ for (i in 1:nrow(all_combis)){
   commmon_vars_list <- list()
   
   # now vip for all models
+  
+  best_results <- list()  # hyperparams selected
+  test_results <- list()  # last fit
+  
   for (models in seq_along(1:nrow(race_results)) ) {
     ## retrieve ID
     wflow_id <- race_results[[1]][models]  # wflow_id column
@@ -393,13 +424,15 @@ for (i in 1:nrow(all_combis)){
     # We compute variable importance by permutating features. If shuffling a column causes a large degradation in model performance, it is important and vica versa. This approach is model agnostic. 
     
     model_vars <- simple_rec %>% summary()
+    
+    if(str_detect(wflow_id, "full_quad")) {
+      model_vars <- poly_rec %>% summary()
+    }
+    
     index <- #model_vars$variable != "id" &    # needed for global importance since in recipe
       model_vars$variable != "disease" #& (model_vars$role == "predictor" | model_vars$role == "outcome")
     # modify data
     predictor_vars <- model_vars[["variable"]][index]
-
-      
-    
     vip_train <- dat_train %>% select(all_of(predictor_vars))  # although we used feature selection, all vars must be present.. takes time
     
     # create explainers | top model
@@ -409,7 +442,7 @@ for (i in 1:nrow(all_combis)){
         data = vip_train, #eval(as.symbol(recipe_models$recipe[models])) %>% prep() %>% bake(new_data = NULL, all_predictors(), all_outcomes()),  #vip_train, 
         y = as.numeric(dat_train$disease), 
         label = wflow_id,
-        verbose=FALSE
+        verbose=TRUE
       )
     
     # variable importance takes time
@@ -454,51 +487,94 @@ for (i in 1:nrow(all_combis)){
       units = "in"  # default
     )
     
+    message(glue("wflow_id: {wflow_id} for {toupper(all_combis$diseases[i])} done.\ncont..."))
     # next model
   }
   
-  ## Common Vars in final models ----------------------------------------------
+  ## Venn | Common Vars in final models ----------------------------------------------
   # selected features calculating intersections
-  intersections <- gplots::venn(commmon_vars_list)
-  list_of_intersections <- attr(intersections, "intersections")
+  # remove some vars we are not interested
+  commmon_vars_list_modified <- commmon_vars_list[names(commmon_vars_list) %in% c("XGB", "RF", "SVM_linear", "SVM_poly") | str_detect(names(commmon_vars_list), pattern= "logistic_reg")]
   
-  # Displaying the intersections
-  intersections_diseases <- tibble(
-    Intersection = character(),
-    Variables = character(), 
-    count_intersections = integer()
-  )
-  for (name in seq_along(list_of_intersections)) {
-    intersection_name <- names(list_of_intersections[name])
-    variables_joined <- paste(gsub("_", "-", list_of_intersections[[name]]), collapse = ", ")
-    no_variables <- length(list_of_intersections[[name]])
-    
-    cat(intersection_name, ":\n", variables_joined, "\n\n")
-    
-    intersections_diseases <- intersections_diseases %>% 
-      add_row(Intersection = intersection_name, Variables = variables_joined, count_intersections = no_variables)
+  commmon_vars_list_modified <- lapply(commmon_vars_list_modified, function(x) {
+    x[!x %in% c("age", "_full_model_", "sex")]
+  })
+  
+  list_names <- names(commmon_vars_list_modified)
+  
+  # Function to find intersection for a given combination of lists
+  get_intersection <- function(combination) {
+    lists_to_intersect <- commmon_vars_list_modified[combination]
+    Reduce(intersect, lists_to_intersect)
   }
   
-  intersections_diseases <- intersections_diseases %>% arrange(desc(count_intersections))
-  saveRDS(object = intersections_diseases, file = glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.rds"))
-  write.csv2(x = intersections_diseases, file=glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.csv"))
+  # Generate all combinations of list names and find intersections
+  list_of_intersections <- lapply(1:length(list_names), function(i) {
+    combn(list_names, i, function(combination) {
+      setNames(list(get_intersection(combination)), paste(combination, collapse = ":"))
+    }, simplify = FALSE)
+  }) %>% unlist(recursive = FALSE)
+  
+  # Filter out empty lists and check for colons (we are only interested in intersections)
+  filtered_list <- Filter(function(x) length(x[[1]]) > 0, list_of_intersections)
+  filtered_list <- Filter(function(x) any(str_detect(names(x), pattern = ":")), filtered_list)
+  
+  # Flatten the list and convert to data frame
+  flattened_list <- do.call(c, filtered_list)  # concatenate function
+  df_intersections <- data.frame(
+    ListName = names(flattened_list),
+    Elements = I(flattened_list)  # I() is used to prevent the list from being simplified into individual columns
+  )
+  df_intersections$Elements <- sapply(df_intersections$Elements, function(x) paste(x, collapse = ", "))
+  df_intersections$Count <- sapply(flattened_list, length)
+  df_intersections <- df_intersections %>% 
+    as_tibble() %>% 
+    arrange(desc(Count))
+  df_intersections
+  saveRDS(object = df_intersections, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.rds"))
+  
+  # docx
+  file_path <- glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.docx")
+  df_intersections_flextable <- flextable(df_intersections) %>% 
+    colformat_double(
+      big.mark = ",", digits = 3, na_str = "N/A"
+    ) %>% 
+    flextable::set_table_properties(layout = "autofit") %>%
+    fontsize(size = 8, part = "all") %>% 
+    flextable::font(fontname = "Times New Roman", part = "all") %>%
+    autofit() %>% 
+    save_as_docx(path=file_path, pr_section = sect_properties)
+  
+  # # previous approach # only until 9 intersection elements, but these also would be huge lists
+  # intersections <- gplots::venn(commmon_vars_list[1:3])
+  # list_of_intersections <- attr(intersections, "intersections")
+  # 
+  # # Displaying the intersections
+  # intersections_diseases <- tibble(
+  #   Intersection = character(),
+  #   Variables = character(), 
+  #   count_intersections = integer()
+  # )
+  # for (name in seq_along(list_of_intersections)) {
+  #   intersection_name <- names(list_of_intersections[name])
+  #   variables_joined <- paste(gsub("_", "-", list_of_intersections[[name]]), collapse = ", ")
+  #   no_variables <- length(list_of_intersections[[name]])
+  #   
+  #   cat(intersection_name, ":\n", variables_joined, "\n\n")
+  #   
+  #   intersections_diseases <- intersections_diseases %>% 
+  #     add_row(Intersection = intersection_name, Variables = variables_joined, count_intersections = no_variables)
+  # }
+  
+
+  #write.csv2(x = intersections_diseases, file=glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.csv"))
   
   # intersections_diseases %>% 
   #   kableExtra::kable(digits = 3, caption = "Intersection of variables in the top 10 VIPs of each model",) %>%
   #   kableExtra::kable_styling(font_size=12) %>% 
   #   kableExtra::kable_classic(full_width = T) %>% 
   #   kableExtra::save_kable()
-  
-  file_path <- glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection.docx")
-  intersections_diseases_flextable <- flextable(intersections_diseases) %>% 
-    colformat_double(
-      big.mark = ",", digits = 3, na_str = "N/A"
-    ) %>% 
-    set_table_properties(layout = "autofit", align= "left") %>%
-    fontsize(size = 8, part = "all") %>% 
-    flextable::font(fontname = "Times New Roman", part = "all") %>%
-    autofit() %>% 
-    save_as_docx(path=file_path, pr_section = sect_properties)
+
   
   # next disease
   message(glue("-------------Run finished for disease: {toupper(all_combis$diseases[i])}-------------------"))
