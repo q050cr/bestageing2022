@@ -6,7 +6,7 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 
-
+# see also /Volumes/T7CR/data/observeACS/scripts/figures_create/performance_ml_models.R
 # Assuming you have these data frames:
 # performance_table_HFREF, performance_table_ACS, performance_table_Disease3, performance_table_Disease4
 
