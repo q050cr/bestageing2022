@@ -1,5 +1,8 @@
 
 
+# script saves several plots and summary data (performance data and vip data)
+
+
 # Get system name
 system_name <- Sys.info()["nodename"]
 mount_filesystem <- TRUE

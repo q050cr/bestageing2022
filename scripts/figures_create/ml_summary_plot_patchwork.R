@@ -15,6 +15,7 @@ library(patchwork)
 # Assuming you have these data frames:
 # performance_table_HFREF, performance_table_ACS, performance_table_Disease3, performance_table_Disease4
 
+
 if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = system_name, "laptop-zim.uni-heidelberg.de")) {
   lib_path <- .libPaths()[1]
   data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
@@ -30,6 +31,8 @@ if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = sy
   data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
 }
 
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_performance_summary_barplot.R"))
+
 
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
@@ -44,26 +47,43 @@ for (i in 1:nrow(all_combis) ) {
     wflow_id <- race_results[[1]][models]
     patchwork_roc_calib <- readRDS(glue("{data_path_bestageing2022}/output/plots/ml_roc_calib_patchwork/{all_combis$diseases[i]}/004c_patchwork_ROC_calib_{wflow_id}_analysis_full_analysis_m20.rds"))
     
+    # load the 3 components created in script 004c_ml_test_set_full_analysis.R
+    filename_plot_patchwork_ROC_calib <- 
+      glue("{data_path_bestageing2022}/output/plots/ml_roc_calib_patchwork/{all_combis$diseases[i]}/004c_patchwork_ROC_calib_{wflow_id}_analysis_full_analysis_m20")
+    # 1) calib
+    calibration_plot <- readRDS(file = glue("{filename_plot_patchwork_ROC_calib}_01_calib_only.rds"))
+    # 2) roc
+    roc_plot_test <- readRDS(file = glue("{filename_plot_patchwork_ROC_calib}_02_roc_only.rds"))
+    # 3) ridges probs
+    ridges_probs_plot <- readRDS(file = glue("{filename_plot_patchwork_ROC_calib}_03_ridges_probs_only.rds")) 
+    ridges_probs_plot <- ridges_probs_plot +theme(legend.position = "bottom")
+    # load vip plot created later in script 004c_ml_test_set_full_analysis.R
     variable_imp_plot <- readRDS(glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_{wflow_id}_variable_imp_plot.rds"))
     
-    # add plot to existing patchwork plot
-    new_combined_plot <- (patchwork_roc_calib | variable_imp_plot) +
-      plot_layout(ncol=3, guides = "collect") +  # guides = "collect" is important to have only one legend 
-      plot_annotation(tag_levels = 'A') +
-      theme(legend.position = "bottom")
-    new_combined_plot
+    # create performance plot
+    # load data created in script  004c_ml_test_set_full_analysis.R
+    performance.summary.table.sens09 <- readRDS(glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/004c_performance_summary_table_analysis_full_analysis_m20.rds")) %>% 
+      # filter for model in loop
+      filter(model %in% wflow_id)
+    
+    performance_barplot <- my_performance_plot(mydata = performance.summary.table.sens09)
+    
+    # Arrange the plots
+    combined_plot <- (roc_plot_test / performance_barplot) | (calibration_plot / ridges_probs_plot) |  variable_imp_plot
+    combined_plot <- combined_plot + plot_layout(ncol = 3, nrow = 1, heights = c(1, 1), widths = c(1,1,2)) + plot_annotation(tag_levels = 'A')
+    combined_plot
+    
+    filename_plot_patchwork_ml_summary_plot <- 
+      glue("{data_path_bestageing2022}/output/plots/ml_roc_calib_patchwork/{all_combis$diseases[i]}/004c_patchwork_ml_summary_plot_{wflow_id}_analysis_full_analysis_m20")
+    
+    ggsave(filename = glue("{filename_plot_patchwork_ml_summary_plot}.svg"), 
+           plot = combined_plot, 
+           width = 14, height = 8, 
+           units = "in"
+    )
+    
   }
-  
-  patchwork_roc_calibtest <- patchwork_roc_calib + theme(legend.position = "bottom")
-  patchwork_roc_calibtest
   
 }
 
 
-
-
-ggsave(filename = glue("{data_path_bestageing2022}/output/plots/IFL_poster2023/performance_sum_plot/{Sys.Date()}_performance_summary_barplot.svg"), 
-       plot = performance_barplot, 
-       width = 6, height = 3, 
-       units = "in"
-)
