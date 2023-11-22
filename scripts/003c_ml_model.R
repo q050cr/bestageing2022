@@ -309,7 +309,7 @@ for (i in 1:nrow(all_combis)) {
     #        file = glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{all_combis$diseases[i]}/{Sys.Date()}-human-disease_biomarker_with_accession_max_value.rds"))
   }
   
-  
+  # select cardiovascular miRNAs
   data01 <- data01 %>% 
       select(pat_id, disease, age, sex, human_disease_biomarker$TargetName)
 
@@ -356,8 +356,9 @@ for (i in 1:nrow(all_combis)) {
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
     step_YeoJohnson() %>% 
     step_normalize(all_numeric_predictors()) %>%  
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+    # feature selected a priori
+    #step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   # B
   poly_rec <- 
     recipe(disease ~ ., data = dat_train) %>%
@@ -368,8 +369,8 @@ for (i in 1:nrow(all_combis)) {
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
     step_normalize(all_numeric_predictors()) %>%  
     step_poly(all_numeric_predictors()) %>% 
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(starts_with("age"), starts_with("sex")), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+    #step_select_forests(all_predictors(), -c(starts_with("age"), starts_with("sex")), outcome = "disease", top_p = n_feature_select)
   #step_interact( ~all_predictors():all_predictors())
   
   # C
@@ -383,8 +384,8 @@ for (i in 1:nrow(all_combis)) {
     step_impute_mode(all_nominal_predictors(), -disease) %>% 
     # DECORRELATE
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+    #step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   
   # sanity check
   prepped_rec <- prep(normalized_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
@@ -464,7 +465,8 @@ for (i in 1:nrow(all_combis)) {
         SVM_radial = svm_rbf_kernlab_spec, 
         SVM_poly = svm_poly_kernlab_spec, 
         SVM_linear = svm_linear_kernlab_spec,
-        neural_network = mlp_nnet_spec
+        neural_network = mlp_nnet_spec,
+        logistic_reg_norm = logistic_reg_glmnet_spec
       )
     )
   
@@ -475,7 +477,8 @@ for (i in 1:nrow(all_combis)) {
       models = list(
         #naive_bayes = naive_Bayes_naivebayes_spec,    ## ERROR when tuning "Error in pkgs$pkg[[1]] : subscript out of bounds"
         RF = rand_forest_ranger_spec,
-        XGB = boost_tree_xgboost_spec
+        XGB = boost_tree_xgboost_spec,
+        logistic_reg_simple = logistic_reg_glmnet_spec
       )
     )
   
@@ -556,7 +559,10 @@ for (i in 1:nrow(all_combis)) {
     option_add(grid = grid_SVM_linear, id = "SVM_linear") %>% 
     option_add(grid = grid_neural_network, id = "neural_network") %>% 
     option_add(grid = grid_full_quad_logistic_reg, id = "full_quad_logistic_reg") %>% 
-    option_add(grid = grid_KNN, id = "full_quad_KNN")   # same hyperparams
+    option_add(grid = grid_KNN, id = "full_quad_KNN") %>%    # same hyperparams
+    # added
+    option_add(grid = grid_full_quad_logistic_reg, id = "logistic_reg_simple") %>%   # same hyperparams
+    option_add(grid = grid_full_quad_logistic_reg, id = "logistic_reg_norm")
   
   #all_workflows <- all_workflows %>% slice(8:9)
   
@@ -605,7 +611,7 @@ for (i in 1:nrow(all_combis)) {
   
   ## SAVE RACE RESULTS -----------------------------------------
   if(SAVE.files == TRUE) {
-    filename_tune_race_results <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_{Sys.Date()}_tune_race_results_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}.rds")
+    filename_tune_race_results <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_20231122_tune_race_results_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}_more_logit.rds")
     saveRDS(object = race_results, file = filename_tune_race_results)
   }
 
@@ -647,7 +653,7 @@ for (i in 1:nrow(all_combis)) {
     my_base_theme() +
     theme(legend.position = "none") -> plot_tune_race_ranking
   
-  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_{Sys.Date()}_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}.svg")
+  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_20231122_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}_more_logit.svg")
   ggsave(filename = filename_plot_tune_race_ranking, plot = plot_tune_race_ranking, 
          width = 14, height = 10, 
          units = "in"  # default

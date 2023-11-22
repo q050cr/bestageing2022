@@ -6,7 +6,8 @@
 # update in 003c_full_analysis script: received detection matrix from hummingbird dx, filtered based on this matrix
 # full analysis with feature selection and model tuning
 
-# scripts saves tuned models (not finalized) to: "./output/tuning_results/"
+# scripts saves tuned models "race_results" (not finalized) to: "./output/tuning_results/"  
+# and a plot "plot_tune_race_ranking" summarizing the performance 
 
 # Get system name
 system_name <- Sys.info()["nodename"]
