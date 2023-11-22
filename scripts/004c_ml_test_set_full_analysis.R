@@ -286,6 +286,14 @@ for (i in 1:nrow(all_combis)){
     )
     saveRDS(object = patchwork_roc_calib, file = glue("{filename_plot_patchwork_ROC_calib}.rds"))  # store for later patchwork
     
+    # save each component to modify later ;)
+    # 1) calib
+    saveRDS(object = calibration_plot, file = glue("{filename_plot_patchwork_ROC_calib}_01_calib_only.rds"))
+    # 2) roc
+    saveRDS(object = roc_plot_test, file = glue("{filename_plot_patchwork_ROC_calib}_02_roc_only.rds"))
+    # 3) ridges probs
+    saveRDS(object = custom_cal_plots$ridges_probs_plot, file = glue("{filename_plot_patchwork_ROC_calib}_03_ridges_probs_only.rds"))
+    
     # next model
   }
   
@@ -386,11 +394,7 @@ for (i in 1:nrow(all_combis)){
     step_dummy(all_nominal_predictors(),-disease) %>% 
     step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   
-<<<<<<< HEAD
-  
-=======
   # more logit
->>>>>>> 9e17f1e96abd9db52130c3b732a8e81c7663a736
   race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE_more_logit.rds"))
   
   ### filter first, vip takes long, and we do not like all models ;) ------------
