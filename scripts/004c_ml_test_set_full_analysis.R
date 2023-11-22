@@ -83,7 +83,8 @@ for (i in 1:nrow(all_combis)){
   folds <- vfold_cv(dat_train, strata = disease, v = no_folds, repeats = no_repeats)
   
   # load race results ---------------------------------------------------------
-  race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE.rds"))
+  # more logit
+  race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE_more_logit.rds"))
   
   # place to store
   best_results <- list()  # hyperparams selected
@@ -385,12 +386,16 @@ for (i in 1:nrow(all_combis)){
     step_dummy(all_nominal_predictors(),-disease) %>% 
     step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   
+<<<<<<< HEAD
   
+=======
+  # more logit
+>>>>>>> 9e17f1e96abd9db52130c3b732a8e81c7663a736
   race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE_more_logit.rds"))
   
   ### filter first, vip takes long, and we do not like all models ;) ------------
-  race_results %>% 
-    filter(!wflow_id %in% c("neural_network")) %>% 
+  race_results <- race_results %>% 
+    filter(!wflow_id %in% c("full_quad_logistic_reg")) %>% 
     filter(!stringr::str_detect(wflow_id, "KNN"))
   
   # common selected vars from models
