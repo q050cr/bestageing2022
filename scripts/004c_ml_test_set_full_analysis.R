@@ -386,7 +386,7 @@ for (i in 1:nrow(all_combis)){
     step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   
   
-  race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE.rds"))
+  race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE_more_logit.rds"))
   
   ### filter first, vip takes long, and we do not like all models ;) ------------
   race_results %>% 
@@ -480,12 +480,14 @@ for (i in 1:nrow(all_combis)){
     variable_imp_plot <- ggplot_imp(vip1_tmp)
     variable_imp_plot
     
-    vip_plot_filename <- glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_{wflow_id}_variable_imp_plot.svg")
+    vip_plot_filename <- glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_{wflow_id}_variable_imp_plot")
     ggsave(
-      filename = vip_plot_filename, plot = variable_imp_plot, 
+      filename = glue("{vip_plot_filename}.svg"), plot = variable_imp_plot, 
       width = 6, height = 6, 
       units = "in"  # default
     )
+    
+    saveRDS(object = variable_imp_plot, file = glue("{vip_plot_filename}.rds"))
     
     message(glue("wflow_id: {wflow_id} for {toupper(all_combis$diseases[i])} done.\ncont..."))
     # next model
