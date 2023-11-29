@@ -29,19 +29,73 @@ if (system_name == "MacBook-Pro-CR-2065.local" | grepl("laptop-zim.uni-heidelber
 
 
 # libraries -------------------------------------------------------------------
-require(tidyverse)
-require(ggthemes)
-require(probably)
-require(patchwork)
-require(pROC)
-require(MatchIt)
-require(probably)
-library(DALEXtra)
-library(flextable)
-library(officer)
-library(glue)
+require(tidyverse, lib.loc = lib_path)
+require(janitor, lib.loc = lib_path)
+require(ggthemes, lib.loc = lib_path)
+require(probably, lib.loc = lib_path)
+require(patchwork, lib.loc = lib_path)
+require(pROC, lib.loc = lib_path)
+require(MatchIt, lib.loc = lib_path)
+require(probably, lib.loc = lib_path)
+library(DALEXtra, lib.loc = lib_path)
+library(flextable, lib.loc = lib_path)
+library(officer, lib.loc = lib_path)
+library(glue, lib.loc = lib_path)
 require(colino, lib.loc = lib_path)
-require(tidymodels)
+require(tidymodels, lib.loc = lib_path)
+
+require(readxl, lib.loc = lib_path)
+
+
+require(dplyr, lib.loc = lib_path)
+require(tidyr, lib.loc = lib_path)
+require(tibble, lib.loc = lib_path)
+require(stringr, lib.loc = lib_path)
+require(purrr, lib.loc = lib_path)
+require(ggplot2, lib.loc = lib_path)
+require(svglite, lib.loc = lib_path)
+require(ggrepel, lib.loc = lib_path)
+require(ggthemes, lib.loc = lib_path)
+require(skimr, lib.loc = lib_path)
+require(tableone, lib.loc = lib_path)
+require(pROC, lib.loc = lib_path)
+require(dials, lib.loc = lib_path)
+require(infer, lib.loc = lib_path)
+require(modeldata, lib.loc = lib_path)
+
+require(rsample, lib.loc = lib_path)
+options(tidymodels.dark = TRUE)
+## used within tidymodels
+# "kknn", "glmnet", "ranger", "naivebayes", "kernlab", "xgboost", "nnet"
+require(kknn, lib.loc = lib_path)
+require(glmnet, lib.loc = lib_path)
+require(ranger, lib.loc = lib_path)
+require(naivebayes, lib.loc = lib_path)
+require(kernlab, lib.loc = lib_path)
+require(xgboost, lib.loc = lib_path)
+require(nnet, lib.loc = lib_path)
+require(colino, lib.loc = lib_path)
+#library(keras, lib.loc = lib_path)  # ## ERRORS with keras
+# Fold2: preprocessor 1/1, model 100/100:
+# Error: Python shared library not found, Python bindings not loaded.
+# Use reticulate::install_miniconda() if you'd like to install a Miniconda Python environment.
+#library(reticulate, lib.loc = lib_path)
+#reticulate::install_miniconda(path = "/mnt/users/reich/programs/miniconda/", update = TRUE, force = FALSE)
+#keras::install_keras(conda = "/mnt/users/reich/miniconda/bin/conda", version = "default")
+# reticulate::conda_list()
+# reticulate::use_python("/mnt/users/reich/programs/miniconda/bin/python3", required = TRUE)
+# Sys.setenv(RETICULATE_PYTHON = "/mnt/users/reich/programs/miniconda/bin/python3")
+require(discrim, lib.loc = lib_path)  # naive bayes
+require(finetune, lib.loc = lib_path)
+require(vetiver, lib.loc = lib_path)
+require(workflowsets, lib.loc = lib_path)
+require(baguette, lib.loc = lib_path)
+require(rules, lib.loc = lib_path)
+tidymodels_prefer()
+conflicted::conflict_prefer("expand", "tidyr")
+conflicted::conflicts_prefer(dplyr::slice)
+conflicted::conflicts_prefer(dplyr::filter)
+
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_calibration_plot.R"))
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))

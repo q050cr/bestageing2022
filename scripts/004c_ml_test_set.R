@@ -31,6 +31,7 @@ if (system_name == "MacBook-Pro-CR-2065.local" | grepl("laptop-zim.uni-heidelber
 
 # libraries -------------------------------------------------------------------
 require(tidyverse)
+require(janitor)
 require(ggthemes)
 require(probably)
 require(patchwork)
