@@ -15,6 +15,7 @@ library(patchwork)
 # Assuming you have these data frames:
 # performance_table_HFREF, performance_table_ACS, performance_table_Disease3, performance_table_Disease4
 
+mount_filesystem <- TRUE
 
 if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = system_name, "laptop-zim.uni-heidelberg.de")) {
   lib_path <- .libPaths()[1]
