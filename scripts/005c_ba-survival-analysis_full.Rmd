@@ -1,0 +1,743 @@
+---
+title: "Survival Analysis and CAD Clusters"
+author: | 
+        | christoph.reich@med.uni-heidelberg.de 
+        | benjamin.meder@med.uni-heidelberg.de
+        | Klinik für Kardiologie, Angiologie und Pneumologie
+        | Universitätsklinikum Heidelberg
+        | 
+date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
+params:
+  date: !r Sys.Date()
+  doc_title: "The Default Title"
+output: 
+  html_document:
+    theme: paper
+    toc: true
+    #number_sections: true
+    toc_float: true
+    toc_depth: 2
+    df_print: kable
+    latex_engine: xelatex
+#bibliography: ../references/refs_ba.bib
+---
+
+```{r setup, include=FALSE}
+# Get system name
+system_name <- Sys.info()["nodename"]
+mount_filesystem <- TRUE
+SAVE.files <- TRUE
+miRetrieveBiomarker <- TRUE
+
+# Define library and data paths based on system
+if (system_name == "MacBook-Pro-CR-2065.local") {
+  lib_path <- .libPaths()[1]
+  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
+  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
+  if(mount_filesystem == TRUE) {
+    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
+    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
+  }
+} else {  # assuming cluster
+  .libPaths("/mnt/users/reich/programs/R43/lib")
+  lib_path <- "/mnt/users/reich/programs/R43/lib" 
+  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
+  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
+}
+
+knitr::opts_chunk$set(echo = FALSE)
+figurespath <- paste0(data_path_bestageing2022, "/reports/", 
+                      format(Sys.time(), "%Y%m%d"), '_ba_survival_figures/')
+knitr::opts_chunk$set(fig.path = figurespath)
+
+caching <- FALSE
+```
+
+
+![AG Meder](../../img/meder_presentation_heart.png)
+
+```{r dependencies}
+library(readxl, lib.loc = lib_path)
+library(glue, lib.loc = lib_path)
+library(janitor, lib.loc = lib_path)
+library(dplyr, lib.loc = lib_path)
+library(tidyr, lib.loc = lib_path)
+library(forcats, lib.loc = lib_path)
+library(stringr, lib.loc = lib_path)
+library(purrr, lib.loc = lib_path)
+library(ggplot2, lib.loc = lib_path)
+library(ggrepel, lib.loc = lib_path)
+library(ggthemes, lib.loc = lib_path)
+library(kableExtra, lib.loc = lib_path)
+library(skimr, lib.loc = lib_path)
+library(tableone, lib.loc = lib_path)
+library(MatchIt, lib.loc = lib_path)
+library(tidymodels, lib.loc = lib_path)
+library(survival, lib.loc = lib_path)
+library(survminer, lib.loc = lib_path)
+library(gginnards, lib.loc = lib_path)
+library(ggsci, lib.loc = lib_path)
+library(lubridate, lib.loc = lib_path)
+source(glue("{data_path_bestageing2022}/scripts/helper/ggsurvplot_custom.R"))
+
+library(lubridate, lib.loc = lib_path)  # datetimes
+library(factoextra, lib.loc = lib_path)  # plotting of kmeans
+
+conflicted::conflict_prefer("expand", "tidyr")
+conflicted::conflicts_prefer(dplyr::filter)
+caching <- FALSE
+```
+
+
+# Discussion
+
+- Issues open for discussion
+
+# Version Update
+
+The new report version includes: 
+
+- First analysis
+
+# Introduction
+
+```{r}
+load(file = glue("{data_path_BestAgeing}/data/data.rda"))
+load(file = glue("{data_path_BestAgeing}/data/mirnas.rda"))  # "UKL-HD" n=765
+load(file = glue("{data_path_BestAgeing}/data/data.rda"))  # "UKL-HD" n=731
+
+# further cleaning
+all_mirnas <- clean_names(mirnas)
+names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
+mirnas_disease <- clean_names(data)
+names(mirnas_disease) <- str_replace(string = names(mirnas_disease), pattern = "mi_r", replacement = "mir")
+
+model_data1 <- clean_names(readRDS(file = glue("{data_path_BestAgeing}/data_new/model_data1.RDS")))  # # has also multiclass col + diagnoses
+
+###
+# METADATA --------------------------------------------------------------------
+## DIAGNOSES DAT
+load(glue("{data_path_BestAgeing}/data/diagnoses_df.rda"))
+
+## SURVIVAL DAT
+survival_dat <- clean_names(readRDS(glue("{data_path_bestageing2022}/data/202211908_XMELD_abfrage_best_ageing.rds"))) # %>% 
+# original path "/mnt/users/reich/XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
+
+## metadata from DB
+# https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
+load(glue("{data_path_BestAgeing}/data/clean_all_meta.rda"))  # created in "scripts/_prepare_metadata.R"
+clean_all_meta <- clean_all_meta %>% 
+  mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
+# cath data? "hkdb"
+
+## load all original metadat xlsx files again to make sure that also overlapped 
+#patients (e.g. dcm+cad) are in each group
+control_ids <- read_excel(glue("{data_path_BestAgeing}/data/pheno_controls.xlsx")) %>% 
+  dplyr::pull(BestAgeingCode)
+
+# "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
+control_ids <- control_ids[control_ids != "UKL-HD-00318"]
+
+
+# RM DAT
+rm(mirnas)
+```
+
+
+## Prepare data for survival analysis
+
+```{r}
+survival_dat1 <- survival_dat %>% 
+  drop_na(pat_id, status) %>% 
+  left_join(clean_all_meta, by=c("pat_id"="patID"))
+
+no.ukhd.pats <- length(grep(pattern = "UKL-HD", x = data$patID, ignore.case = TRUE))
+fu.rate <- round(100/no.ukhd.pats * nrow(survival_dat1), 2)
+
+(disease.no <- table(survival_dat1$disease))
+```
+
+Out of `r no.ukhd.pats` patients that were enrolled at the University Hospital Heidelberg we gathered Follow-Up data (ac-mortality) in `r nrow(survival_dat1)` (missing Follow-Up Rate = `r fu.rate`%). Among these patients `r disease.no["acs"]` patients suffered from ACS, `r disease.no["cad"]` patients had CAD, `r disease.no["dcm"]` patients had DCM, and `r disease.no["control"]` participants were assigned to the control group. 
+
+We filter patients with HFpEF (n=5) and HFrEF (n=3).
+
+```{r filter-patients}
+survival_dat1 <- survival_dat1 %>% 
+  filter(disease != "pef" & disease != "ref") %>% 
+  mutate(time = time/365)
+
+table(survival_dat1$disease)
+```
+
+
+# Descriptive KM stratified by disease
+
+First, lets inspect survival times of the different diseases: 
+
+```{r}
+# 5y-mortality
+survival_dat1 <- survival_dat1 %>%
+  # 5y mortality
+  mutate(status5y = ifelse(time>5, 0, status),
+         time5y = ifelse(time>5, 5, time))
+
+sfit_diseases.5y <- survfit(Surv(time5y, status5y) ~ disease, data = survival_dat1)
+ggsurvplot(fit = sfit_diseases.5y, data = survival_dat1 )
+
+
+# easy KM
+sfit_diseases <- survfit(Surv(time5y, status5y) ~ disease, data = survival_dat1)
+ggsurvplot(fit = sfit_diseases, data = survival_dat1 ) 
+
+# custom plot
+p1.disease <- ggsurvplot_custom(fit_object = sfit_diseases, legend.title = "", myXbreaks = c(1,2,3,4,5,6,7,8),
+                                 legend.labs = c("ACS", "CAD", "CONTROL", "DCM"), plot_inlay = FALSE,
+                                save = FALSE, plotname = "p1_ALL_disease")
+p1.disease$plot <- p1.disease$plot+
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(6)) +
+  my_base_theme()
+p1.disease
+
+
+if (SAVE.files == TRUE) {
+  #save
+  ## https://github.com/kassambara/survminer/issues/152
+  filename.km.alldiseases <- glue("{data_path_bestageing2022}/output/plots/survival/survival-alldiseases.svg")
+  # this works on my mac
+  ggsave(
+    filename = filename.km.alldiseases,
+    #plot = print(p1, newpage = FALSE),
+    survminer:::.build_ggsurvplot(p1.disease),
+    device = 'svg',
+    width = 10,
+    height = 8
+  )
+}
+
+```
+
+# ML models survival probs
+
+## Load ML models
+
+
+We now predict all models we have per disease and add the probabilities to our survival data. 
+
+```{r predict-whole-disease-dataset-and-filter-ukhd}
+# only have surv data from 3 diseases
+model.disease.vector <- c("acs", "cad", "dcm")
+
+# load 1 race result to extract the wflow ids
+race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/acs/003c_full_analysis_tune_race_results_repeats_10_folds_5_ACS_analysis_randomMIR_FALSE_more_logit.rds"))
+
+wflow_id_vector <- race_results$wflow_id
+
+for (model.disease in 1:length(model.disease.vector)) {
+  # load disease specific data from 001c ----------------------------------------------------------
+  # specific to this script (preprocessing, filtered miRNAs with Detection Matrix, batch effects removed)
+  path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{model.disease.vector[model.disease]}_data01.rds")
+  if(!file.exists(path2dataprocessed)) {
+    next
+  }
+  
+  data01 <- readRDS(file = path2dataprocessed)
+  
+  # select disease specific models
+  # index <- grep(pattern = model.disease.vector[model.disease], x = name2assignModelInEnv)
+  
+  for(mymodel in 1:length(wflow_id_vector)) {
+    # load test results stored in 004c
+    test_results_tmp <- readRDS(glue("{data_path_bestageing2022}/output/test_set_results/test_results_202311/{model.disease.vector[model.disease]}/004c_TEST_RESULTS_{wflow_id_vector[mymodel]}_analysis_full_m20.rds"))
+
+    extract.workflow.loop <- extract_workflow(test_results_tmp)
+    
+    predictions <- predict(extract.workflow.loop, new_data=data01, type = "prob")
+    # 
+    colname_pred_control <- glue("{colnames(predictions)[1]}_{wflow_id_vector[mymodel]}_{model.disease.vector[model.disease]}")
+    colname_pred_disease <- glue("{colnames(predictions)[2]}_{wflow_id_vector[mymodel]}_{model.disease.vector[model.disease]}")
+    
+    data01[1] %>% 
+      cbind(predictions) -> temp.dat
+    
+    survival_dat1 <- survival_dat1 %>% 
+      left_join(temp.dat, by = join_by(pat_id)) %>% 
+      rename(!! colname_pred_control := !! colnames(predictions)[1],
+             !! colname_pred_disease := !! colnames(predictions)[2]) 
+    
+    #mtcars %>% 
+    #rename("PREFIX_{ OLD_COL_NAME }" := !! OLD_COL_NAME)
+  }
+}
+```
+
+
+## Use predictions and plot KM
+
+
+```{r}
+
+#cave : somewhere in deployment the .pred_control and corresponding disease column was called .pred_acs instead of .pred_{disease}
+## fixed that bug on 2023-03-08 (bug in this script because of some test vector)
+
+lab2023 <- read_excel(path = glue("{data_path_bestageing2022}/data/elham2023/2023-11-15-elham_metadat_combined_LAB2023_b.xlsx")) %>% 
+  filter(best_ageing_code %in% survival_dat1$pat_id) %>% 
+  select(best_ageing_code, HSTNT, HSTNTHP, NTBNP, INR, BILI, KREA, LEUKO, CRP, HB, CHOL) %>% 
+  mutate(
+    HSTNT = case_when(is.na(HSTNT) ~ HSTNTHP,
+                      .default = HSTNT)
+  ) %>% 
+  # drop duplicates
+  distinct(best_ageing_code, .keep_all = TRUE) %>% 
+  # convert to numeric and change "," -> "." for decimals
+  mutate(across(!c(best_ageing_code), function(x) as.numeric(gsub(",", ".", x)) )) %>% 
+  select(-HSTNTHP) # is second TNT, first TNT measured in HSTNT, kinetics
+
+
+survival_dat1 <- survival_dat1 %>% 
+  left_join(lab2023, by=c("pat_id"="best_ageing_code")) %>% 
+  mutate(
+    bnp = case_when(
+      is.na(bnp) ~ NTBNP,
+      .default = bnp
+    ),
+    troponinT = case_when(
+      is.na(troponinT) ~ HSTNT,
+      .default = troponinT
+    ),
+    crea = case_when(
+      is.na(crea) ~ KREA,
+      .default = crea
+    ),
+    hemo = case_when(
+      is.na(hemo) ~ HB,
+      .default = hemo
+    ),
+    wbc = case_when(
+      is.na(wbc) ~ LEUKO,
+      .default = wbc
+    ),
+    cholesterol = case_when(
+      is.na(cholesterol) ~ CHOL,
+      .default = cholesterol
+    )
+  ) %>% 
+  select(-c(CHOL, LEUKO, HB, KREA, HSTNT, NTBNP))
+
+for (mydisease in 1:length(model.disease.vector)) {
+
+  ## df ONLY looking at patients with disease (no control) 
+  survival_dat1.disease <- survival_dat1 %>% 
+    filter(disease == !! model.disease.vector[mydisease]) 
+  
+  # now loop over all models
+  for(mymodel in 1:length(wflow_id_vector)) {
+    
+    colname_pred_control <- glue(".pred_control_{wflow_id_vector[mymodel]}_{model.disease.vector[mydisease]}")
+    colname_pred_disease <- glue(".pred_{model.disease.vector[mydisease]}_{wflow_id_vector[mymodel]}_{model.disease.vector[mydisease]}")
+    
+    ## df filter patients that have predictions because they have miRNA data
+    survival_dat1.disease <- survival_dat1.disease %>% 
+      filter(!is.na(!! sym(colname_pred_control))) 
+    
+    # create tertiles
+    survival_dat1.disease <- survival_dat1.disease %>% 
+      mutate(model.pred.groups = cut_number(.data[[colname_pred_disease]], n=3)) %>% 
+      mutate(model.pred.groups = factor(model.pred.groups, labels = c("low", "intermediate", "high")))
+    
+    
+    # easy KM
+    sfit_diseases <- survfit(Surv(time5y, status5y) ~ model.pred.groups, data = survival_dat1.disease)
+    surv.plotname <- glue("{data_path_bestageing2022}/output/plots/survival/005c_full/005c_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_full.svg")
+    ggsurvplot_custom_poster(fit_object = sfit_diseases, mytitle=NULL, legend.title = "", 
+                      myXbreaks = c(1, 2,3,4, 5),
+                      legend.labs = c("low", "intermediate", "high"), plot_inlay = FALSE,
+                      save = TRUE, plotname = surv.plotname)
+    
+    # create descriptive stats -------------------------------------------
+    table_survival_tmp <- survival_dat1.disease %>% 
+      select(pat_id, disease, status5y, #time, 
+             age, sex, weight, bmi, smoke, dm, hypertension, familiyhist, 
+             # lab
+             crea, troponinT, bnp, hemo, INR, BILI, wbc, CRP, cholesterol, 
+             #
+             echo_ef, echo_lv_dil,
+             model.pred.groups, .data[[colname_pred_disease]]
+      ) %>% 
+      mutate(status5y = factor(status5y, labels = c("Survived", "Died"))) %>% 
+      mutate(model.pred.groups = factor(model.pred.groups, labels = c("Low", "Intermediate", "High"))) %>% 
+      mutate(
+        dm = case_when(
+          dm == "No" ~ "No", 
+          .default = "Yes"
+        ),
+        smoke = case_when(
+          smoke == "Never" ~"No",
+          .default = "Yes"
+        ),
+        hypertension = case_when(
+          hypertension == "Yes" ~"Yes",
+          .default = "No"
+        ),
+        familiyhist = case_when(
+          familiyhist == "Yes" ~"Yes",
+          .default = "No"
+        ),
+      )
+    
+    # rename for table  LAB: crea, troponinT, bnp, hemo, INR, BILI, wbc, CRP, cholesterol, 
+    table_survival_tmp <- table_survival_tmp %>%
+      rename(
+        PatientID = pat_id,
+        DiseaseType = disease,
+        `AC-Mortality` = status5y,
+        Age = age,
+        Gender = sex,
+        WeightKg = weight,
+        BodyMassIndex = bmi,
+        Smoking = smoke,
+        Diabetes = dm,
+        Hypertension = hypertension,
+        FamilyHistory = familiyhist,
+        # lab
+        Creatinine = crea,
+        `hs-TroponinT` = troponinT,
+        `nt-proBNP` = bnp,
+        Hemoglobin = hemo,
+        Bilirubin = BILI,
+        Leukocytes = wbc,
+        Cholesterol = cholesterol,
+        # 
+        EjectionFraction = echo_ef,
+        LeftVentricleDilation = echo_lv_dil,
+        ModelPredictionGroup = model.pred.groups,
+        PredictedDiseaseProbability = .data[[colname_pred_disease]]
+      ) 
+    
+    ## Vector of variables to summarize
+    myVars <- dput(colnames(table_survival_tmp)[-(1:2)])  # remove pat id and disease (only 1 disease!)
+    
+    ## Vector of categorical variables that need transformation
+    catVars <- c("Gender", "AC-Mortality", "Smoking", "Diabetes", "Hypertension", "FamilyHistory", "LeftVentricleDilation")
+    biomarkers <- c("Creatinine", "hs-TroponinT", "nt-proBNP", "Hemoglobin", "INR", "Bilirubin", "Leukocytes", "CRP", "Cholesterol")
+    
+    ## Create a TableOne object
+    tab1 <- CreateTableOne(vars = myVars[myVars !="ModelPredictionGroup"], strata = "ModelPredictionGroup", 
+                           data = table_survival_tmp, 
+                           factorVars = catVars
+                           )
+    print(tab1,                          
+          nonnormal = biomarkers, 
+          showAllLevels = FALSE, 
+          formatOptions = list(big.mark = ",")
+    )
+    
+    ## export to csv
+    tab1MAT <- print(tab1, nonnormal = biomarkers, showAllLevels = FALSE, formatOptions = list(big.mark = ","), quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+    write.csv2(tab1MAT, file = glue("{data_path_bestageing2022}/output/tables/survival/full/005c_survTable-{model.disease.vector[mydisease]}_{wflow_id_vector[mymodel]}.csv"))
+    
+    kableone(tab1, nonnormal = biomarkers, caption="Patient characteristics stratified by predicted disease probability tertiles") %>% 
+      kable_classic() -> kable.table.surv
+    print(kable.table.surv)
+    
+    
+  }
+}
+```
+
+
+
+
+
+# CAD Clusters and Predictions
+
+```{r}
+joined_hc_mirna <- readRDS(glue("{data_path_BestAgeing}/data_new/joined_hc_mirna.rds"))
+
+# survival_dat1.cad <- survival_dat1 %>% 
+#   filter(disease == "cad") %>% # | disease == "control") %>% 
+#   filter(!is.na(.data[[".pred_cad_full_quad_KNN_cad"]]))  # example for predictions for cad
+
+survival_dat1.cad <- survival_dat1 %>% 
+  filter(disease == "cad" | disease == "control") %>% 
+  filter(across(starts_with(".pred_cad"), ~!is.na(.x))) 
+
+joined_hc_mirna1 <- survival_dat1.cad %>% 
+  left_join(joined_hc_mirna[c(3,14:28 )], by = c("pat_id"="best_ageing_code") ) %>% 
+  # drop NA (no cath data (n=47))
+  drop_na(rca_1)
+```
+
+
+We need to filter for CAD patients and maybe later also include Controls:
+
+```{r k-means-clustering}
+# kmeans.hcm<- kmeans(scale(df.first.hc[, 12:26]), centers=3, iter.max = 10, nstart = 1,
+#        algorithm = c("Hartigan-Wong", "Lloyd", "Forgy",
+#                      "MacQueen"), trace=FALSE)
+set.seed(123)
+x<- scale(joined_hc_mirna1[ ,120:134])
+
+fviz_nbclust(x, kmeans, method = "wss") +
+  geom_vline(xintercept = 6, linetype = 2)
+```
+
+```{r k-means-clustering-for-all-6-clusterings, figures-side, fig.show='hold', out.width="33%"}
+set.seed(123)
+for(i in 2:6) {  # create 2 to 6 clusters
+  title_plot <- paste("k = ", i)
+  kmeans.ba <- kmeans(x, centers = i, iter.max = 1000, nstart = 25)
+  
+  ### name clusters
+  ordered.index <- order(table(kmeans.ba$cluster), decreasing=TRUE)
+  for (j in 2:max(kmeans.ba$cluster)) {
+    cluster.name <- paste("Cluster ", j, sep = "")
+    kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[1]] <- "CAD -"
+    kmeans.ba$cluster[kmeans.ba$cluster == ordered.index[j]] <- cluster.name
+  }
+  
+  # plot clusters
+  print(fviz_cluster(object = kmeans.ba, data = joined_hc_mirna1[ ,120:134],
+                     geom = "point", 
+                     #ellipse.type = "euclid",
+                     alpha =0.5,
+                     shape = 16,
+                     show.legend=FALSE) +
+          ggtitle(title_plot)+
+          ggthemes::theme_few()+
+          ggthemes::scale_color_few()+
+          theme(legend.title=element_blank())
+  )
+}
+
+set.seed(123)
+x<- scale(joined_hc_mirna1[ ,120:134])
+
+centers<- 6
+kmeans.ba.all <- list()
+for (i in 2:centers) { # create kmeans for 2:6 centers
+  kmeans.ba.all[[i]] <- kmeans(x, centers=i, iter.max = 1000, nstart = 25)
+}
+```
+
+## Choose clusters
+
+We choose both 4 centers and 5 centers for k-means clustering:
+  
+```{r k-means-clustering4c-5c, figures-side, fig.show='hold', out.width="50%"}
+set.seed(123)
+### A
+centers=4
+kmeans.ba4 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.ba4$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.ba4$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[1]] <- "CAD -"
+  kmeans.ba4$cluster[kmeans.ba4$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.ba4)
+
+aggregate(joined_hc_mirna1[ ,120:134], by=list(cluster=kmeans.ba4$cluster), mean)
+# plot
+fviz_cluster(object = kmeans.ba4, data = joined_hc_mirna1[ ,120:134],
+             geom = "point", 
+             #ellipse.type = "euclid",
+             alpha =0.5,
+             shape = 16,
+             show.legend=FALSE) +
+  ggtitle(title_plot)+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  theme(legend.title=element_blank())
+
+joined_hc_mirna1 <- joined_hc_mirna1 %>% 
+  mutate(kmeans4centers = kmeans.ba4$cluster)
+#mutate(date_of_hc = as.Date(date_of_hc))
+
+#-------------------#
+### B | 5 clusters ------------------------------
+
+centers=5
+kmeans.ba5 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.ba5$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.ba5$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[1]] <- "CAD -"
+  kmeans.ba5$cluster[kmeans.ba5$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.ba5)
+
+aggregate(joined_hc_mirna1[ ,120:134], by=list(cluster=kmeans.ba5$cluster), mean)
+# plot
+fviz_cluster(object = kmeans.ba5, data = joined_hc_mirna1[ ,120:134],
+             geom = "point", 
+             #ellipse.type = "euclid",
+             alpha =0.5,
+             shape = 16,
+             show.legend=FALSE) +
+  ggtitle("k=5")+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  theme(legend.title=element_blank())  -> k5plot.cad
+
+k5plot.cad <- k5plot.cad +
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(6)) +
+  my_base_theme() +
+  theme(legend.title=element_blank())
+
+k5plot.cad
+
+
+
+path2cad_cluster_figure <- glue("{data_path_bestageing2022}/output/plots/cad_cluster/005_c_cad_cluster_k5_full")  # same plot
+
+ggsave(filename = glue("{path2cad_cluster_figure}.svg"), plot = k5plot.cad, width = 12, height = 8)
+
+joined_hc_mirna1 <- joined_hc_mirna1 %>% 
+  mutate(kmeans5centers = kmeans.ba5$cluster)
+```
+
+
+# Descriptive Cluster Statistics and custom cluster plot (with probability)
+
+```{r edit-data}
+joined_hc_mirna1 %>% 
+  select(pat_id, disease, age, weight, sex, kmeans4centers, kmeans5centers,
+         # LAB
+         crea, troponinT, bnp, hemo, INR, BILI, wbc, CRP, cholesterol,
+         # miRNAS COULD BE INCLUDED HERE FOR MODELING LATER
+         #49:161
+         ## CAD predictions !!
+         73:94
+  ) %>% 
+  rename(
+     # lab
+        Creatinine = crea,
+        `hs-TroponinT` = troponinT,
+        `nt-proBNP` = bnp,
+        Hemoglobin = hemo,
+        Bilirubin = BILI,
+        Leukocytes = wbc,
+        Cholesterol = cholesterol
+  ) %>% 
+  mutate(kmeans4to2 = ifelse(kmeans4centers == "CAD -", 0,1),
+         kmeans5to2 = ifelse(kmeans5centers == "CAD -", 0,1)) %>% 
+  drop_na(.pred_control_SVM_radial_cad) -> hc_predictions_dat
+```
+
+
+```{r}
+## Vector of variables to summarize
+myVars <- dput(colnames(hc_predictions_dat)[-(1:2)])
+index <- grep("^.pred_control", myVars)
+myVars <- myVars[-index]
+#drop vars
+dropping <- c("kmeans4centers", "kmeans5centers", "kmeans4to2")
+index <- myVars %in% dropping
+myVars <- myVars[!index]
+
+hc_predictions_dat <- hc_predictions_dat %>% 
+  mutate(kmeans5to2 = factor(kmeans5to2, labels = c("CAD Cluster", "Severe CAD Cluster")))
+
+## Vector of categorical variables that need transformation
+catVars <- c("sex")
+
+biomarkers <- c("Creatinine", "hs-TroponinT", "nt-proBNP", "Hemoglobin", "INR", "Bilirubin", "Leukocytes", "CRP", "Cholesterol")
+
+## Create a TableOne object
+tab1 <- CreateTableOne(vars = myVars[myVars !="kmeans5to2"], strata = "kmeans5to2", data = hc_predictions_dat, factorVars = catVars)
+print(tab1, nonnormal = biomarkers, showAllLevels = TRUE, formatOptions = list(big.mark = ","))
+
+## export to csv
+tab1MAT <- print(tab1, nonnormal = biomarkers, showAllLevels = TRUE, formatOptions = list(big.mark = ","), quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+write.csv2(tab1MAT, file = glue("{data_path_bestageing2022}/output/tables/cad_cluster/005c_myTable-cad-hkdb_full.csv"))
+
+kableone(tab1,  nonnormal = biomarkers, caption="Predictions of CAD Probability Stratified by Clusters of Coronary Angiography") %>% 
+  kable_classic() -> kable.table.cad.hkdb
+kable.table.cad.hkdb
+
+# saveRDS(kable.table.cad.hkdb, glue("{data_path_bestageing2022}/output/tables/cad_cluster/{Sys.Date()}_kable.table.cad.hkdb.rds"))
+## go to MAC Rstudiz
+```
+
+```{r matched-stats-cad-cluster}
+# Convert disease to a binary factor !!! NEEDED, cave ordering!
+# does not work if control is first level
+#hc_predictions_dat$disease_fct <- factor(hc_predictions_dat$disease, levels=c("control", "cad"))
+hc_predictions_dat$disease_fct <- as.factor(hc_predictions_dat$disease)
+m.out.check <- matchit(disease_fct ~ age + sex, data = hc_predictions_dat, method = NULL, distance="glm")
+# No matching - Check initial balance
+summary(m.out.check)
+
+# 1:1 NN PS matching w/o replacement
+m.out1 <- matchit(disease_fct ~ age + sex, data = hc_predictions_dat,
+                 method = "nearest", distance = "glm")
+summary(m.out1)
+
+matched_data <- match.data(m.out1)
+hc_predictions_dat_matched <- matched_data %>% select(1:40)  # bring to same dimension as before
+```
+
+```{r}
+## Create a TableOne object
+tab1_matched <- CreateTableOne(vars = myVars[myVars !="kmeans5to2"], strata = "kmeans5to2", data = hc_predictions_dat_matched, factorVars = catVars)
+print(tab1_matched, nonnormal=biomarkers, showAllLevels = TRUE, formatOptions = list(big.mark = ","))
+
+## export to csv
+tab1MAT_matched <- print(tab1_matched,  nonnormal = biomarkers, showAllLevels = TRUE, formatOptions = list(big.mark = ","), quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+write.csv2(tab1MAT_matched, file = glue("{data_path_bestageing2022}/output/tables/cad_cluster/005c_myTable-cad-hkdb_full_MATCHED.csv"))
+
+kableone(tab1_matched, caption="Predictions of CAD Probability Stratified by Clusters of Coronary Angiography") %>% 
+  kable_classic() -> kable.table.cad.hkdb_matched
+kable.table.cad.hkdb_matched
+```
+
+
+## Custom Clustering Plot
+
+```{r}
+# custom cluster plot ggplot
+
+# Perform PCA on the data
+pca_res <- prcomp(joined_hc_mirna1 %>% select(120:134), scale = TRUE)
+# Get the first two principal components
+joined_hc_mirna2 <- joined_hc_mirna1 %>% 
+  mutate(PC1 = pca_res$x[,1], 
+         PC2 = pca_res$x[,2])
+
+hc_predictions_dat %>% 
+  left_join(joined_hc_mirna2 %>% select(1, 120:134, PC1, PC2), by=c("pat_id" = "pat_id")) %>% 
+  mutate(.pred_cad_XGB_cad = .pred_cad_XGB_cad + 0.001) %>% 
+  mutate(kmeans5centers = as.factor(kmeans5centers)) %>% 
+  ggplot(aes(x = PC1, y=PC2, 
+             
+             #shape = kmeans5centers
+             )
+         ) +
+  geom_point(aes(color = .pred_cad_XGB_cad), alpha = 0.8, size = 2,
+             shape = 16
+             ) +
+  stat_ellipse(aes(fill = kmeans5centers), geom = "polygon", alpha = 0.2, level = 0.95) +
+  scale_color_gradient(low = thematic::okabe_ito(6)[2], high = "red") +
+  theme_minimal() +
+  labs(color = "CAD Probability", 
+       fill = "CAD Clusters"
+       #shape="Cluster"
+       ) + 
+  theme_minimal(base_size = 16, base_family = 'Arial')+
+  scale_fill_manual(values = thematic::okabe_ito(5)) +
+  # scale_shape_manual(values=c(17, 18, 2, 1, 16)) +  # for example, if you have 3 clusters
+  my_base_theme() -> custom_cluster_plot_5k
+custom_cluster_plot_5k
+path2cad_cluster_figure <- glue("{data_path_bestageing2022}/output/plots/cad_cluster/005c_cad_cluster_k5_custom_full")
+
+ggsave(filename = glue("{path2cad_cluster_figure}.svg"), plot = custom_cluster_plot_5k, width = 7, height = 4)
+```
+
