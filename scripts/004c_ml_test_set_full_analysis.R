@@ -29,11 +29,16 @@ if (system_name == "MacBook-Pro-CR-2065.local" | grepl("laptop-zim.uni-heidelber
 
 
 # libraries -------------------------------------------------------------------
+require(readxl)
 require(tidyverse)
+library(caret)
+library(epiR)
+require(janitor)
 require(ggthemes)
 require(probably)
 require(patchwork)
 require(pROC)
+require(MatchIt)
 require(probably)
 library(DALEXtra)
 library(flextable)
@@ -67,7 +72,7 @@ all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
 # START RUN analysis on test set for each disease ................... --------
 # loading the race results (2-3 GB takes some time, but not too long)
 
-RUN.test = FALSE
+RUN.test = TRUE
 
 if(RUN.test == TRUE) {
   for (i in 1:nrow(all_combis)){
@@ -153,6 +158,11 @@ if(RUN.test == TRUE) {
         finalize_workflow(best_results[[models]]) %>% 
         last_fit(split = dat_split)
       
+      # save for later (script 005 survival)
+      testresults_save <- glue("{data_path_bestageing2022}/output/test_set_results/test_results_202311/{all_combis$diseases[i]}/004c_TEST_RESULTS_{wflow_id}_analysis_full_m20.rds")
+      saveRDS(test_results[[models]], file = testresults_save)
+      
+      
       aucs <- append(aucs, collect_metrics(test_results[[models]])[[3]][2])
       accuracies <- append(accuracies, collect_metrics(test_results[[models]])[[3]][1])
       
@@ -202,6 +212,29 @@ if(RUN.test == TRUE) {
       caret_conf_mat_sens09[[models]] <-  caret::confusionMatrix(predictions_loop[[models]]$.pred_class_sens09,
                                                                  predictions_loop[[models]]$disease, 
                                                                  positive = all_combis$diseases[i])
+      # epiR, calc CIs
+      conf_mat <- caret_conf_mat_sens09[[models]]$table
+      # Extract the counts
+      tp <- conf_mat[4]
+      fn <- conf_mat[3]
+      fp <- conf_mat[2]
+      tn <- conf_mat[1]
+      epi_conf_output <- epiR::epi.tests(rev(c(tp, fn, fp, tn)), method = "exact")  # needs to be reversed since event level cannot be changed
+      
+      epi_table <- epi_conf_output$detail 
+      new_row <- data.frame(
+        statistic = "auc",
+        est = ci.auc[2],
+        lower = ci.auc[1],
+        upper = ci.auc[3]
+      )
+      epi_table <- epi_table %>% 
+        rbind(new_row)
+      
+      filename_epiR <- 
+        glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/models_full/004c_{wflow_id}_epiR_crosstabs.csv")
+      write.csv2(x = epi_table, file = filename_epiR)
+      
       #print(caret_conf_mat_sens09[[models]])
       accuracies_sens09 <- append(accuracies_sens09, caret_conf_mat_sens09[[models]]$overall[[1]])
       sensitiv_sens09 <- append(sensitiv_sens09, caret_conf_mat_sens09[[models]][[4]][1])
@@ -337,7 +370,7 @@ if(RUN.test == TRUE) {
 
 
 
-# Feature Importance ---------------------------------------------------------
+^# Feature Importance ---------------------------------------------------------
 # takes reeeeally long ;)
 
 for (i in 1:nrow(all_combis)){
