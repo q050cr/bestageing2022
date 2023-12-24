@@ -1,6 +1,6 @@
 
 
-# script saves several plots and summary data (performance data and vip data)
+# script saves several plots and summary data (performance data and vip data), analysis on literature miRNAs
 
 
 # Get system name
@@ -30,7 +30,10 @@ if (system_name == "MacBook-Pro-CR-2065.local" | grepl("laptop-zim.uni-heidelber
 
 
 # libraries -------------------------------------------------------------------
+require(readxl)
 require(tidyverse)
+library(caret)
+library(epiR)
 require(janitor)
 require(ggthemes)
 require(probably)
@@ -44,6 +47,8 @@ library(officer)
 library(glue)
 require(colino, lib.loc = lib_path)
 require(tidymodels)
+conflicted::conflicts_prefer(dplyr::slice)
+conflicted::conflict_prefer_all("dplyr")
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_calibration_plot.R"))
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
@@ -60,6 +65,94 @@ sect_properties <- prop_section(
   page_margins = page_mar(),
   #section_columns = section_columns(widths = c(4.75, 4.75))
 )
+
+diseases <- c("dcm", "acs", "cad", "hfref")
+analysis <- c("selected", "full")
+all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
+  filter(analysis=="selected")
+
+
+###
+# load data ---------------------------------------------------------------
+# MIRNA DAT
+model_data1 <- clean_names(readRDS(file = glue('{data_path_BestAgeing}/data_new/model_data1.RDS')))  # has also multiclass col + diagnoses
+load(file = glue('{data_path_BestAgeing}/data/mirnas.rda'))  # "UKL-HD" n=765
+load(file = glue('{data_path_BestAgeing}/data/data.rda'))  # "UKL-HD" n=731
+all_mirnas <- clean_names(mirnas)
+names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
+mirnas_disease <- clean_names(data)
+names(mirnas_disease) <- str_replace(string = names(mirnas_disease), pattern = "mi_r", replacement = "mir")
+rm(data, mirnas)
+
+## seq metadat 09-2023
+# batch info
+hbdx_metadat <- clean_names(readxl::read_excel(path = glue('{data_path_bestageing2022}/data/kahraman2023/230907_annotation_chrstoph_reich.xlsx')))  # has also multiclass col + diagnoses
+#RIN
+rin_mean <- mean(as.numeric(hbdx_metadat$rin), na.rm=TRUE)
+rin_sd <- sd(as.numeric(hbdx_metadat$rin), na.rm=TRUE)
+
+# detection matrix
+det_mat_all_mirnas <- read.table(glue("{data_path_bestageing2022}/data/kahraman2023/det_mat_all_mirnas.txt")) %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  clean_names()
+colnames(det_mat_all_mirnas) <- str_replace(string = colnames(det_mat_all_mirnas), pattern = "mi_r", replacement = "mir")
+rownames(det_mat_all_mirnas) <- gsub("\\.", "-", rownames(det_mat_all_mirnas))
+# convert to tibble
+det_mat_all_mirnas <- det_mat_all_mirnas %>% 
+  rownames_to_column(var = "pat_id") %>% 
+  as_tibble()
+
+
+# hbdx_metadat %>% select(slide_id, slide_array_id)
+unique_slide_ids <- length(unique(hbdx_metadat$slide_id))
+arrays_per_slide <- nrow(hbdx_metadat) / unique_slide_ids
+sum_duplicated_samples <- sum(duplicated(hbdx_metadat$customer_id)); index_duplicated_samples <- duplicated(hbdx_metadat$customer_id)
+duplicate_ids <- hbdx_metadat[index_duplicated_samples, ] %>% pull(customer_id)
+# check
+checked_duplicated_hbdx <- hbdx_metadat %>% 
+  filter(customer_id %in% duplicate_ids) %>% 
+  select(customer_id, date_analysis, sample_qc, array_qc) %>% arrange(customer_id)
+# remove
+hbdx_metadat <- hbdx_metadat %>% 
+  distinct(customer_id, .keep_all = TRUE)
+
+# load-mirnas-from_research
+# create vector of described mirnas
+load(glue("{data_path_BestAgeing}/data_research/fromR/researchMiRNAAccession.rda"))
+# check if all mirnas are named the same
+researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
+  str_replace(pattern = "mi_r", replacement = "mir")
+# researchMiRNAAccession$miRNAName_v21[(!researchMiRNAAccession$miRNAName_v21 %in% colnames(all_mirnas))] 
+## "hsa_mir_106a_5p" --> should be --> "hsa_mir_106b_5p"
+## all_mirnas[,(str_detect(string = colnames(all_mirnas), pattern = "106"))]
+## researchMiRNAAccession[which(!researchMiRNAAccession$miRNAName_v21 %in% colnames(all_mirnas)),]
+researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hsa_mir_106a_5p"] <- "hsa_mir_106b_5p"
+
+###
+# load-metadat --
+## DIAGNOSES DAT
+load(glue("{data_path_BestAgeing}/data/diagnoses_df.rda"))
+
+## SURVIVAL DAT
+survival_dat <- clean_names(readRDS(glue("{data_path_bestageing2022}/data/202211908_XMELD_abfrage_best_ageing.rds"))) # %>% 
+# original path "/mnt/users/reich/XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
+
+## metadata from DB
+# https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
+load(glue("{data_path_BestAgeing}/data/clean_all_meta.rda"))  # created in "scripts/_prepare_metadata.R"
+clean_all_meta <- clean_all_meta %>% 
+  mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
+# cath data? "hkdb"
+
+## load all original metadat xlsx files again to make sure that also overlapped 
+#patients (e.g. dcm+cad) are in each group
+control_ids <- read_excel(glue("{data_path_BestAgeing}/data/pheno_controls.xlsx")) %>% 
+  dplyr::pull(BestAgeingCode)
+
+# "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
+control_ids <- control_ids[control_ids != "UKL-HD-00318"]
+
 
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
@@ -206,6 +299,10 @@ if(RUN.test == TRUE) {
         finalize_workflow(best_results[[models]]) %>% 
         last_fit(split = dat_split)
       
+      # save for later (script 005 survival)
+      testresults_save <- glue("{data_path_bestageing2022}/output/test_set_results/test_results_202311/{all_combis$diseases[i]}/selected_analysis/004c_TEST_RESULTS_{wflow_id}_analysis_selected.rds")
+      saveRDS(test_results[[models]], file = testresults_save)
+      
       aucs <- append(aucs, collect_metrics(test_results[[models]])[[3]][2])
       accuracies <- append(accuracies, collect_metrics(test_results[[models]])[[3]][1])
       
@@ -255,6 +352,29 @@ if(RUN.test == TRUE) {
       caret_conf_mat_sens09[[models]] <-  caret::confusionMatrix(predictions_loop[[models]]$.pred_class_sens09,
                                                                  predictions_loop[[models]]$disease, 
                                                                  positive = all_combis$diseases[i])
+      # epiR, calc CIs
+      conf_mat <- caret_conf_mat_sens09[[models]]$table
+      # Extract the counts
+      tp <- conf_mat[4]
+      fn <- conf_mat[3]
+      fp <- conf_mat[2]
+      tn <- conf_mat[1]
+      epi_conf_output <- epiR::epi.tests(rev(c(tp, fn, fp, tn)), method = "exact")  # needs to be reversed since event level cannot be changed
+      
+      epi_table <- epi_conf_output$detail 
+      new_row <- data.frame(
+        statistic = "auc",
+        est = ci.auc[2],
+        lower = ci.auc[1],
+        upper = ci.auc[3]
+      )
+      epi_table <- epi_table %>% 
+        rbind(new_row)
+      
+      filename_epiR <- 
+        glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/models_selected/004c_{wflow_id}_epiR_crosstabs.csv")
+      write.csv2(x = epi_table, file = filename_epiR)
+      
       #print(caret_conf_mat_sens09[[models]])
       accuracies_sens09 <- append(accuracies_sens09, caret_conf_mat_sens09[[models]]$overall[[1]])
       sensitiv_sens09 <- append(sensitiv_sens09, caret_conf_mat_sens09[[models]][[4]][1])

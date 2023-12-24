@@ -263,6 +263,20 @@ if(RUN.test == TRUE) {
       caret_conf_mat_sens09[[models]] <-  caret::confusionMatrix(predictions_loop[[models]]$.pred_class_sens09,
                                                                  predictions_loop[[models]]$disease, 
                                                                  positive = all_combis$diseases[i])
+      
+      # epiR, calc CIs
+      conf_mat <- caret_conf_mat_sens09[[models]]$table
+      # Extract the counts
+      tp <- conf_mat[4]
+      fn <- conf_mat[3]
+      fp <- conf_mat[2]
+      tn <- conf_mat[1]
+      epi_conf_output <- epiR::epi.tests(rev(c(tp, fn, fp, tn)), method = "exact")  # needs to be reversed since event level cannot be changed
+      
+      filename_epiR <- 
+        glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/models_full/004c_{wflow_id}_epiR_crosstabs_MATCHED.csv")
+      write.csv2(x = epi_conf_output$detail, file = filename_epiR)
+      
       #print(caret_conf_mat_sens09[[models]])
       accuracies_sens09 <- append(accuracies_sens09, caret_conf_mat_sens09[[models]]$overall[[1]])
       sensitiv_sens09 <- append(sensitiv_sens09, caret_conf_mat_sens09[[models]][[4]][1])
