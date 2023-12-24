@@ -14,6 +14,8 @@ slurm*
 renv.lock
 scripts/pubmed_query.R
 scripts/miRetrieve.R
+README-FM-bestageing.txt
+README-lab-request.txt
 
 # dirs
 data/
