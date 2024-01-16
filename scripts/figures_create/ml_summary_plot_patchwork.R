@@ -33,7 +33,7 @@ if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = sy
 }
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_performance_summary_barplot.R"))
-
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
 
 # A) selected analysis -------------------------------------------------------
@@ -157,3 +157,57 @@ for (i in 1:nrow(all_combis) ) {
 }
 
 # C) full analysis matched -----------------------------------------------
+
+for (i in 1:nrow(all_combis) ) {
+  
+  race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE_more_logit_matchIt.rds"))
+
+  # not included in calculating vip
+  race_results <- race_results %>% 
+    filter(!wflow_id %in% c("full_quad_logistic_reg")) %>% 
+    filter(!stringr::str_detect(wflow_id, "KNN"))
+  
+  for (models in seq_along(1:nrow(race_results)) ) {
+    wflow_id <- race_results[[1]][models]
+    patchwork_roc_calib <- readRDS(glue("{data_path_bestageing2022}/output/plots/ml_roc_calib_patchwork/{all_combis$diseases[i]}/004c_patchwork_ROC_calib_{wflow_id}_analysis_full_analysis_m20_matchIt.rds"))
+    
+    # load the 3 components created in script 004c_ml_test_set_full_analysis.R
+    filename_plot_patchwork_ROC_calib <- 
+      glue("{data_path_bestageing2022}/output/plots/ml_roc_calib_patchwork/{all_combis$diseases[i]}/004c_patchwork_ROC_calib_{wflow_id}_analysis_full_analysis_m20_matchIt")
+    # 1) calib
+    calibration_plot <- readRDS(file = glue("{filename_plot_patchwork_ROC_calib}_01_calib_only.rds"))
+    # 2) roc
+    roc_plot_test <- readRDS(file = glue("{filename_plot_patchwork_ROC_calib}_02_roc_only.rds"))
+    # 3) ridges probs
+    ridges_probs_plot <- readRDS(file = glue("{filename_plot_patchwork_ROC_calib}_03_ridges_probs_only.rds")) 
+    ridges_probs_plot <- ridges_probs_plot +theme(legend.position = "bottom")
+    # load vip plot created later in script 004c_ml_test_set_full_analysis.R
+    variable_imp_plot <- readRDS(glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_{wflow_id}_variable_imp_plot_matchIt.rds"))
+    
+    # create performance plot
+    # load data created in script  004c_ml_test_set_full_analysis.R
+    performance.summary.table.sens09 <- readRDS(glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/004c_performance_summary_table_analysis_full_analysis_m20_matchIt.rds")) %>% 
+      # filter for model in loop
+      filter(model %in% wflow_id)
+    
+    performance_barplot <- my_performance_plot(mydata = performance.summary.table.sens09)
+    
+    # Arrange the plots
+    combined_plot <- (roc_plot_test / performance_barplot) | (calibration_plot / ridges_probs_plot) |  variable_imp_plot
+    combined_plot <- combined_plot + plot_layout(ncol = 3, nrow = 1, heights = c(1, 1), widths = c(1,1,2)) + plot_annotation(tag_levels = 'A')
+    combined_plot
+    
+    filename_plot_patchwork_ml_summary_plot <- 
+      glue("{data_path_bestageing2022}/output/plots/ml_summary_plot_patchwork/{all_combis$diseases[i]}/004c_patchwork_ml_summary_plot_{wflow_id}_analysis_full_analysis_m20_matchIt")
+    
+    ggsave(filename = glue("{filename_plot_patchwork_ml_summary_plot}.svg"), 
+           plot = combined_plot, 
+           width = 14, height = 8, 
+           units = "in"
+    )
+    
+  }
+  # next disease
+  message(glue("-------------Run finished for disease: {toupper(all_combis$diseases[i])}-------------------"))
+}
+
