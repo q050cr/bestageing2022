@@ -84,7 +84,7 @@ tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 conflicted::conflicts_prefer(dplyr::slice)
 conflicted::conflicts_prefer(dplyr::filter)
-
+conflicted::conflicts_prefer(janitor::make_clean_names)
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
@@ -332,7 +332,13 @@ for (i in 1:nrow(all_combis)) {
   
   ## MATCHING -------------------------
   modeldat <- na.omit(modeldat) # matching without missings
+  modeldat$disease <- as.factor(modeldat$disease)
+  
+  modeldat$disease <- factor(modeldat$disease, levels=c("control", all_combis$diseases[i]))
+  
   m.out <- matchit(disease ~ age + sex, data = modeldat, method = "nearest")
+  summary(m.out)
+  
   # plot(m.out, type = "jitter")
   modeldat <- match.data(m.out)
   

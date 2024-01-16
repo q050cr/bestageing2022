@@ -140,6 +140,11 @@ if(RUN.test == TRUE) {
     
     ## MATCHING -------------------------
     modeldat <- na.omit(modeldat) # matching without missings
+    
+    modeldat$disease <- as.factor(modeldat$disease)
+    
+    modeldat$disease <- factor(modeldat$disease, levels=c("control", all_combis$diseases[i]))
+    
     m.out <- matchit(disease ~ age + sex, data = modeldat, method = "nearest")
     # plot(m.out, type = "jitter")
     modeldat <- match.data(m.out)
@@ -430,6 +435,11 @@ for (i in 1:nrow(all_combis)){
   
   ## MATCHING -------------------------
   modeldat <- na.omit(modeldat) # matching without missings
+  
+  modeldat$disease <- as.factor(modeldat$disease)
+  
+  modeldat$disease <- factor(modeldat$disease, levels=c("control", all_combis$diseases[i]))
+  
   m.out <- matchit(disease ~ age + sex, data = modeldat, method = "nearest")
   # plot(m.out, type = "jitter")
   modeldat <- match.data(m.out)
