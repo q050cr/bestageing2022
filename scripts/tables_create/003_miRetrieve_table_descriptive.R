@@ -409,3 +409,207 @@ if(SAVE.files == TRUE) {
          units = "in"  # default
   )
 }
+
+
+
+# TABLE S4 ----------------------------------------------------------------
+
+prepare_gt_dat1 %>% 
+  mutate(
+    TargetName = str_replace_all(TargetName, "_", "-"), # replace underscores with hyphens
+    padj = round(padj, 3), # round to 3 decimal places
+    padj = ifelse(padj == 0, "≤ 0.001", as.character(padj)),
+    padj.glm = round(padj.glm, 3), # round to 3 decimal places
+    padj.glm = ifelse(padj.glm == 0, "≤ 0.001", as.character(padj.glm))
+  ) %>% 
+  mutate(
+    Topic = case_when(
+      Topic == "ACS" ~ "Acute Coronary Syndrome",
+      Topic == "CAD" ~ "Coronary Artery Disease",
+      Topic == "DCM" ~ "Dilated Cardiomyopathy",
+      Topic == "HFrEF" ~ "Heart Failure With Reduced Ejection Fraction",
+    ),
+    Topic = factor(Topic, levels = (custom_order))  # consistent with the behavior of ggplot2, where factor levels are plotted in reverse order to match the standard layout of a Cartesian coordinate system
+  ) %>% 
+  
+  mutate(
+    PMIDs = paste0("<a href='http://www.ncbi.nlm.nih.gov/pubmed/",
+                   PMIDs,
+                   "' style='font-size:60%;'>",
+                   PMIDs,
+                   "</a>")
+  ) %>% 
+  group_by(Topic) %>% 
+  # THIS ALLOWS THE ORDERING OF THE SPANNERS! 
+  arrange(Topic, padj, desc(max_value)) %>%  # arrange(Topic, desc(auc), desc(max_value))
+  #slice(1:5) %>%   # only top 5
+  relocate(
+    max_value, .after = Accession
+  ) %>% 
+  select(-c(rocaucs, Biomarker_score, miRetrieve, padj.glm)) %>% 
+  mutate(auc = round(auc,3)) %>% 
+  
+  ## start gt -------------------------------------------------------------
+gt(groupname_col = "Topic") %>% 
+  opt_table_font(font = "Arial") %>%
+  tab_header(title = md("**Literature miRNAs from miRetrieve**")) %>%
+  fmt_markdown(columns = c(PMIDs)) %>%
+  ## groupings spanner label
+  #tab_spanner(
+  #  label = "Topic", 
+  #  columns = c(Topic)
+  #) %>% 
+  cols_label(
+    #Topic = "Topic",
+    TargetName = "microRNA",
+    Accession = "Accession",
+    max_value = "Biomarker Score",
+    #miRetrieve = "miRetrieve",
+    padj = "p-adj (Holm)",
+    #padj.glm = "p-adj-glm (BH)",
+    sign_indicator = "Significance Indicator",
+    auc = "ROC AUCs", 
+    PMIDs = "PMIDs"
+  ) %>%
+  tab_spanner(
+    label = "Performance",
+    columns = c(
+      max_value, padj,sign_indicator, auc
+    )
+  ) %>% 
+  tab_source_note(
+    source_note = md("**Biomarker Score** as calculated by *{miRetrieve}*. P values 
+                     were adjusted using the Benjamini-Hochberg procedure. 
+                     The variable p.adj.glm represents p values from t-tests 
+                     adjusted for age and sex.")
+  ) %>% 
+  tab_footnote(
+    footnote = "PMID = PubMed Unique Identifier",
+    locations = cells_column_labels(columns = PMIDs)
+  ) %>% 
+  opt_stylize(style=1, color="gray") %>% 
+  tab_options(
+    table.width = pct(100),
+    footnotes.multiline = FALSE,
+    footnotes.marks = letters,
+    data_row.padding = px(0)
+  ) %>% 
+  # Align text to center
+  cols_align(
+    align = c("center"),
+    columns = c(everything())
+  ) %>% 
+  # Adjust width of cols
+  cols_width(
+    TargetName ~ px(100),
+    Accession ~ px(100),
+    auc ~ px(100), 
+    sign_indicator ~ px(100),
+    starts_with("p.adj") ~ px(40),
+    PMIDs ~ px(150),
+    everything() ~ px(50)
+  ) %>% 
+  tab_options(
+    table.font.size = px(10L)
+  ) -> gt_literature_miRetrieve
+
+gt_literature_miRetrieve %>% 
+  gtsave("tab_1.docx")
+
+
+## only AUC performance and biomarker score -------------------
+prepare_gt_dat1 %>% 
+  mutate(
+    TargetName = str_replace_all(TargetName, "_", "-") # replace underscores with hyphens
+  ) %>% 
+  mutate(
+    Topic = case_when(
+      Topic == "ACS" ~ "Acute Coronary Syndrome",
+      Topic == "CAD" ~ "Coronary Artery Disease",
+      Topic == "DCM" ~ "Dilated Cardiomyopathy",
+      Topic == "HFrEF" ~ "Heart Failure With Reduced Ejection Fraction",
+    ),
+    Topic = factor(Topic, levels = (custom_order))  # consistent with the behavior of ggplot2, where factor levels are plotted in reverse order to match the standard layout of a Cartesian coordinate system
+  ) %>% 
+  
+  mutate(
+    PMIDs = paste0("<a href='http://www.ncbi.nlm.nih.gov/pubmed/",
+                   PMIDs,
+                   "' style='font-size:60%;'>",
+                   PMIDs,
+                   "</a>")
+  ) %>% 
+  group_by(Topic) %>% 
+  # THIS ALLOWS THE ORDERING OF THE SPANNERS! 
+  arrange(Topic, desc(auc), desc(max_value)) %>%  # arrange(Topic, desc(auc), desc(max_value))
+  #slice(1:5) %>%   # only top 5
+  relocate(
+    max_value, .after = Accession
+  ) %>% 
+  select(-c(rocaucs, Biomarker_score, miRetrieve, padj.glm, padj, sign_indicator)) %>% 
+  mutate(auc = round(auc,3)) %>% 
+  
+  ## start gt -------------------------------------------------------------
+gt(groupname_col = "Topic") %>% 
+  opt_table_font(font = "Arial") %>%
+  tab_header(title = md("**Literature miRNAs from miRetrieve**")) %>%
+  fmt_markdown(columns = c(PMIDs)) %>%
+  cols_label(
+    #Topic = "Topic",
+    TargetName = "microRNA",
+    Accession = "Accession",
+    max_value = "Biomarker Score",
+    #miRetrieve = "miRetrieve",
+    auc = "AUROC", 
+    PMIDs = "PMID"
+  ) %>%
+  tab_spanner(
+    label = "Performance",
+    columns = c(
+      max_value, auc
+    )
+  ) %>% 
+  tab_source_note(
+    source_note = md("**Biomarker Score** as calculated by *{miRetrieve}*.")
+  ) %>% 
+  tab_footnote(
+    footnote = "AUROC;  area under the receiver operating characteristics curve",
+    locations = cells_column_labels(columns = auc)
+  ) %>% 
+  tab_footnote(
+    footnote = "PMID; PubMed Unique Identifier",
+    locations = cells_column_labels(columns = PMIDs)
+  ) %>% 
+  opt_stylize(style=1, color="gray") %>% 
+  tab_options(
+    table.width = pct(100),
+    footnotes.multiline = FALSE,
+    footnotes.marks = letters,
+    data_row.padding = px(0)
+  ) %>% 
+  # Align text to center
+  cols_align(
+    align = c("center"),
+    columns = c(everything())
+  ) %>% 
+  # Adjust width of cols
+  cols_width(
+    TargetName ~ px(100),
+    Accession ~ px(100),
+    auc ~ px(100), 
+    PMIDs ~ px(150),
+    everything() ~ px(50)
+  ) %>% 
+  tab_options(
+    table.font.size = px(10L)
+  ) -> gt_literature_miRetrieve
+
+gt_literature_miRetrieve
+
+
+gt_literature_miRetrieve %>% 
+  gtsave(glue("{data_path_bestageing2022}/output/tables/literature_miRetrieve/003c_table_miRetrieve_miRNA.docx"))
+
+
+
+
