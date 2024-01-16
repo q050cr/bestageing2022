@@ -547,8 +547,12 @@ for (i in 1:nrow(all_combis)){
     saveRDS(object = variable_imp_plot, file = glue("{vip_plot_filename}.rds"))
     
     message(glue("wflow_id: {wflow_id} for {toupper(all_combis$diseases[i])} done.\ncont..."))
-    # next model
+    # next model -------------------------------------------------------------------------------
+    
   }
+  
+  
+  # stay with disease loop
   
   ## Venn | Common Vars in final models ----------------------------------------------
   # selected features calculating intersections
