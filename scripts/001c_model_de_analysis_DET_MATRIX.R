@@ -34,6 +34,9 @@ runLimmaRemoveBatchEffect <- TRUE
 runSVA <- TRUE  # adds sva if computed to dataframe and adjusts for it when testing
 runRobustRegression <- TRUE
 
+# for figure 1 vogel 2013 
+adjusting_method <- "holm" # "holm" # "BH" = Benjamini Hochberg
+
 # Define library and data paths based on system
 if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = system_name, "laptop-zim.uni-heidelberg.de")) {
   lib_path <- .libPaths()[1]
@@ -811,8 +814,7 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
                          pval.glm_rob_pca =pval.glm_rob_pca,
                          auc_glm_rob_pca=auc_glm_rob_pca)
     
-    # for figure 1 vogel 2013 
-    adjusting_method <- "holm" # "holm" # "BH" = Benjamini Hochberg
+    
     results_logmedians <- tibble(miR =name.mir, auc=aucs, aucs_glm = auc_glm, aucs_glm_sva = auc_glm_sva,
                                  pval.t.test = pval.t.test, pval.u.test = pval.u.test, pval.glm = pval.glm, pval.glm_sva = pval.glm_sva, pval.t.test.permute=pval.t.test.permute,
                                  pval.glm_rob = pval.glm_rob, pval.glm_rob_pca =pval.glm_rob_pca,
@@ -1054,8 +1056,8 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
   print(fig1vogel2013)
   
   if (SAVE.files ==TRUE) {
-    fig1vogel2013_path <- glue("{data_path_bestageing2022}/output/plots/fig01vogel2013/001c_{Sys.Date()}_{toupper(all_combis$diseases[mydisease])}_linear_correlation.svg")
-    fig1vogel2013_path_b <- glue("{data_path_bestageing2022}/output/plots/fig01vogel2013/001c_{Sys.Date()}_{toupper(all_combis$diseases[mydisease])}_linear_correlation_b.svg")
+    fig1vogel2013_path <- glue("{data_path_bestageing2022}/output/plots/fig01vogel2013/001c_{toupper(all_combis$diseases[mydisease])}_linear_correlation.svg")
+    fig1vogel2013_path_b <- glue("{data_path_bestageing2022}/output/plots/fig01vogel2013/001c_{toupper(all_combis$diseases[mydisease])}_linear_correlation_b.svg")
     ggsave(filename = fig1vogel2013_path, plot = fig1vogel2013, 
            width = 8, height = 8, 
            units = "in"  # default
@@ -1064,6 +1066,14 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
            width = 8, height = 8, 
            units = "in"  # default
     )
+    
+    path_distr_univariate_auc <- glue("{data_path_bestageing2022}/output/plots/auc_univariate/001c_{toupper(all_combis$diseases[mydisease])}_univar_auc_distribution")
+    ggsave(filename = glue("{path_distr_univariate_auc}.svg"), plot = p1.3, 
+           width = 4, height = 3, 
+           units = "in"  # default
+    )
+    saveRDS(object = p1.3, file = glue("{path_distr_univariate_auc}.rds"))
+    
   }
   
   ## figure 02 vogel 2013. ----------------------------
