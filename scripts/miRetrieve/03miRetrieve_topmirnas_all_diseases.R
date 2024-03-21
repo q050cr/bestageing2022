@@ -81,6 +81,16 @@ table_mirna_ALL_bm_score_alldiseases <- tibble(
 )
 
 for(i in 1:length(all_combis$diseases)){
+  
+  
+  # we also need subset of filtered miRNA profiled # NEW
+  path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[i]}_data01.rds")
+  if(!file.exists(path2dataprocessed)) {
+    next
+  }
+  data01 <- readRDS(file = path2dataprocessed)
+  
+  
   # LOOP start ----------------------------------------------------------------
   # files created in "harmonise-miRetrieve-v21.R"
   path2biomarker <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-27-human-disease_biomarker_with_accession.rds")  # changed from 2023-07-12
@@ -177,6 +187,12 @@ for(i in 1:length(all_combis$diseases)){
   # TOP 50 per disease ------------------------------------------------------
 
   human_disease_biomarker_top50 <- human_disease_biomarker %>% 
+    mutate(
+      TargetNameSanity = make_clean_names(TargetName) %>% 
+        str_replace(pattern = "mi_r", replacement = "mir")
+    ) %>% 
+    filter(TargetNameSanity %in% colnames(data01) ) %>% 
+    select(-TargetNameSanity) %>% 
     drop_na(Accession) %>% 
     arrange(desc(Biomarker_score)) %>% 
     left_join(human_disease_biomarker_count %>% 
@@ -262,8 +278,9 @@ miRetrieve_alldiseases <- miRetrieve_alldiseases[-1, ]
 table_mirna_top50bm_score_alldiseases <- table_mirna_top50bm_score_alldiseases[-1, ]
 # save
 if (SAVE.files ==TRUE) {
-  saveRDS(object = miRetrieve_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/top50mirnas_all_diseases.rds"))  # old
-  saveRDS(object = table_mirna_top50bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/top50mirnas_all_diseases_pmids_gpt.rds"))  # new
+  # in newest save miRNAs that were stable in the profiling were included!
+  saveRDS(object = miRetrieve_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125top50mirnas_all_diseases.rds"))  # old
+  saveRDS(object = table_mirna_top50bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125top50mirnas_all_diseases_pmids_gpt.rds"))  # new
 }
 
 length(unique(miRetrieve_alldiseases$Accession))
@@ -275,8 +292,8 @@ miRetrieve_alldiseases_ALL <- miRetrieve_alldiseases_ALL[-1, ]
 table_mirna_ALL_bm_score_alldiseases <- table_mirna_ALL_bm_score_alldiseases[-1, ]
 # save
 if (SAVE.files ==TRUE) {
-  saveRDS(object = miRetrieve_alldiseases_ALL, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/ALL_bm_mirnas_all_diseases.rds"))  # old
-  saveRDS(object = table_mirna_ALL_bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/ALL_bm_mirnas_all_diseases_pmids_gpt.rds"))  # new
+  saveRDS(object = miRetrieve_alldiseases_ALL, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125ALL_bm_mirnas_all_diseases.rds"))  # old
+  saveRDS(object = table_mirna_ALL_bm_score_alldiseases, file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125ALL_bm_mirnas_all_diseases_pmids_gpt.rds"))  # new
 }
 
 

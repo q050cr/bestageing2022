@@ -159,7 +159,7 @@ rm(data, mirnas)
 # batch info
 hbdx_metadat <- clean_names(readxl::read_excel(path = glue('{data_path_bestageing2022}/data/kahraman2023/230907_annotation_chrstoph_reich.xlsx')))  # has also multiclass col + diagnoses
 # detection matrix
-det_mat_all_mirnas <- read.table("/Volumes/T7CR/data/bestageing2022/data/kahraman2023/det_mat_all_mirnas.txt") %>% 
+det_mat_all_mirnas <- read.table(glue("{data_path_bestageing2022}/data/kahraman2023/det_mat_all_mirnas.txt")) %>% 
   t() %>% 
   as.data.frame() %>% 
   clean_names()
@@ -673,7 +673,7 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
   ## STORE PROCESSED DATA -------------------------------------------------------------------
   
   if (SAVE.files ==TRUE) {
-    path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{disease}_data01.rds")
+    path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/20240125_001c_{disease}_data01.rds")
     saveRDS(object = data01, file = path2dataprocessed)
   }
   
@@ -703,6 +703,9 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
   empse.cont <- rep(NA,ncol(all_filtered_mirnas)-1)
   empse.case <- rep(NA,ncol(all_filtered_mirnas)-1)
   aucs <- rep(NA,ncol(all_filtered_mirnas)-1)
+  aucs_lowerci <- rep(NA,ncol(all_filtered_mirnas)-1)
+  aucs_upperci <- rep(NA,ncol(all_filtered_mirnas)-1)
+  
   auc_glm <- rep(NA,ncol(all_filtered_mirnas)-1)
   auc_glm_sva  <- rep(NA,ncol(all_filtered_mirnas)-1)
   auc_glm_rob  <- rep(NA,ncol(all_filtered_mirnas)-1)
@@ -733,6 +736,11 @@ for (i in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {  # only co
       empse.cont[miRNA] <- sd(cont)/ sqrt(length(cont))
       empse.case[miRNA] <- sd(case)/ sqrt(length(case))
       aucs[miRNA] <- suppressMessages(pROC::roc(controls=cont, cases=case)$auc[[1]])
+      # Calc AUC CI
+      roc_obj <- roc(controls = cont, cases = case)
+      auc_value <- auc(roc_obj)
+      auc_conf <- ci(roc_obj)
+      
       name.mir[miRNA] <- names(data01[miRNA_col])
       
       # average difference and logfold
@@ -1172,14 +1180,17 @@ if (SAVE.files ==TRUE) {
 
 
 
-# DE volcanos ----------------------------------------------------------------
+# VOLCANO ----------------------------------------------------------------
 # moved here from "main.Rmd"
 df_de_mirna_topic <- tibble(
   miRNA = character(0),
   Topic = character(0)
 )
 
-for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
+
+volcano_list <- list()
+
+for(mydisease in 1:nrow(all_combis)) {
   # de.results_old <- readRDS(dplyr::last(list.files(path = "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022/output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
   path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[mydisease]}_data01.rds")
   data01 <- readRDS(file = path2dataprocessed)
@@ -1192,6 +1203,8 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
   de.results$padj.glm <- p.adjust(de.results$pval.glm, method = "holm", n = length(de.results$pval.t.test))
   de.results$padj.glm_pca <- p.adjust(de.results$pval.glm_pca, method = "holm", n = length(de.results$pval.t.test))
   
+  # literature mirnas UPDATE 20240125 
+  table_mirna_top50bm_score_alldiseases <- readRDS(file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125top50mirnas_all_diseases_pmids_gpt.rds"))
   
   ## manual calc 
   # n.comparisons <- length(de.results$pval.t.test)
@@ -1223,10 +1236,25 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
   
   ## label miRNAs 
   # Step 1: select miRNAs from miRetrieve and disease
-  # UPDATE NEW 2023-09, not only top50 per disease but all above miRetrieve biomarker threshold
-  disease_miRetrieve_mirnas <- miRetrieve_alldiseases %>% 
+  # UPDATE NEW 2023-09, not only top50 per disease BUT ALL above miRetrieve biomarker threshold
+  #disease_miRetrieve_mirnas <- miRetrieve_alldiseases %>%  # loaded for Vogel Figure 01
+  # mutate(Topic = toupper(Topic)) %>% 
+  # filter(Topic == toupper(all_combis$diseases[mydisease])) %>% 
+  # pull(TargetName)
+  
+  #update 2024 -- matched literature mirnas
+  disease_miRetrieve_mirnas <- table_mirna_top50bm_score_alldiseases %>% 
     mutate(Topic = toupper(Topic)) %>% 
     filter(Topic == toupper(all_combis$diseases[mydisease])) %>% 
+    pull(TargetName)
+  
+  # literature only info for 340-5p!
+  disease_miRetrieve_mirnas <- disease_miRetrieve_mirnas[disease_miRetrieve_mirnas != "hsa_mir_340_3p"]
+  
+  disease_miRetrieve_mirnas_shared <- table_mirna_top50bm_score_alldiseases %>% 
+    #
+    mutate(Topic = toupper(Topic)) %>% 
+    #filter(Topic == toupper(all_combis$diseases[mydisease])) %>% 
     pull(TargetName)
 
   
@@ -1238,11 +1266,17 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
   ## old literature miRNAs 
   # de.results$delabel <- ifelse(de.results$delabel %in% researchMiRNAAccession$miRNAName_v21,  de.results$delabel, NA)
   # NEW from miRetrieve
+  
+  # all disease mirnas
+  de.results$delabel_all <- ifelse(de.results$delabel %in% disease_miRetrieve_mirnas_shared,  de.results$delabel, NA)
+  # disease specific
   de.results$delabel <- ifelse(de.results$delabel %in% disease_miRetrieve_mirnas,  de.results$delabel, NA)
   
   ## color all literature miRNAs ----------------------------------------
   #de.results$research_mirna <- ifelse(de.results$miRNA %in% researchMiRNAAccession$miRNAName_v21,  "Literature miRNA", "Not found in Literature")
   de.results$research_mirna <- ifelse(de.results$miRNA %in% disease_miRetrieve_mirnas,  "Literature miRNA", "Not found in miRetrieve Top Hits")
+  de.results$research_mirna_all <- ifelse(de.results$miRNA %in% disease_miRetrieve_mirnas_shared,  "Literature miRNA", "Not found in miRetrieve Top Hits")
+  
   
   ## # label miRNA 106b-5p (special interest)
   ## freys.mirnas <- c("hsa_mir_106b_3p", "hsa_mir_106b_5p")
@@ -1255,14 +1289,56 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
   
   
   bh_threshold <- max(de.results$padj[de.results$padj < 0.05])
+  
+  de.results <- de.results %>% 
+    mutate(diffexpressed = factor(diffexpressed, levels = c("DOWN", "UP", "NO")))
   de.results %>% 
     mutate(delabel = gsub("_", "-", delabel)) %>% 
+    mutate(delabel= gsub("hsa-mir-", "miR-", delabel)) %>% 
     ggplot(aes(x=log2FoldChange, y=-log10(pval.t.test), col=diffexpressed, label=delabel)) + 
     geom_point(alpha=ifelse(de.results$diffexpressed != "NO", 1, 0.2), size=1, shape=16) + 
     geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
     geom_hline(
       # yintercept=-log10(bh_threshold),  # BH threshold
-      yintercept=-log10(0.05/length(pval.t.test)),  # bonferroni only correction
+      yintercept=-log10(0.05/length(de.results$pval.t.test)),  # bonferroni only correction
+      alpha=0.3
+    ) + 
+    labs(
+      title = NULL, # paste0("Volcano plot of DE miRNAs in ", disease_vector[mydisease]),
+      subtitle = NULL, #subtitle.custom
+    ) +
+    xlab(NULL) + #"log2 fold change") + 
+    ylab(NULL) + # "-log10 (p-value)") + 
+    theme(legend.position = "none", 
+          plot.title = element_text(size = rel(1.5), hjust = 0.5), 
+          axis.title = element_text(size = rel(1.25)))+
+    #ggthemes::scale_color_few(name="Differentially expressed")+
+    ggrepel::geom_text_repel(show.legend = FALSE, size=5)+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    scale_color_manual(values = thematic::okabe_ito(6), name="Differentially expressed")+
+    my_base_theme() -> volcano_1
+  print(volcano_1)
+  
+  volcano_list[[mydisease]] <- volcano_1
+  
+  if (SAVE.files ==TRUE ){
+    filename.volcano <- glue("{data_path_bestageing2022}/output/plots/de_analysis/{all_combis$diseases[mydisease]}/20240126_001c_de_volcano_only_disease_specific_literature_mirnas.svg")
+    ggsave(filename = filename.volcano, plot = volcano_1, 
+           width = 9, height = 5, 
+           units = "in"  # default
+    )
+  }
+  # all literature mirnas
+  de.results %>% 
+    mutate(delabel_all = gsub("_", "-", delabel_all)) %>% 
+    mutate(delabel_all= gsub("hsa-mir-", "miR-", delabel_all)) %>% 
+    ggplot(aes(x=log2FoldChange, y=-log10(pval.t.test), col=diffexpressed, label=delabel_all)) + 
+    geom_point(alpha=ifelse(de.results$diffexpressed != "NO", 1, 0.2), size=1, shape=16) + 
+    geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
+    geom_hline(
+      # yintercept=-log10(bh_threshold),  # BH threshold
+      yintercept=-log10(0.05/length(de.results$pval.t.test)),  # bonferroni only correction
       alpha=0.3
     ) + 
     labs(
@@ -1279,16 +1355,17 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
     theme_minimal(base_size = 16, base_family = 'Arial')+
     scale_fill_manual(values = thematic::okabe_ito(6)) +
     scale_color_manual(values = thematic::okabe_ito(6), name="Differentially expressed")+
-    my_base_theme() -> volcano_1
-  print(volcano_1)
+    my_base_theme() -> volcano_1_all
+  print(volcano_1_all)
   
   if (SAVE.files ==TRUE ){
-    filename.volcano <- glue("{data_path_bestageing2022}/output/plots/de_analysis/{all_combis$diseases[mydisease]}/001c_de_volcano.svg")
-    ggsave(filename = filename.volcano, plot = volcano_1, 
+    filename.volcano <- glue("{data_path_bestageing2022}/output/plots/de_analysis/{all_combis$diseases[mydisease]}/20240126_001c_de_volcano_ALL_disease_specific_literature_mirnas.svg")
+    ggsave(filename = filename.volcano, plot = volcano_1_all, 
            width = 9, height = 5, 
            units = "in"  # default
     )
   }
+  
   
   # Color all literature miRNAs
   de.results %>% 
@@ -1297,7 +1374,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
     geom_point(alpha=ifelse(de.results$research_mirna == "Literature miRNA", 1, 0.2), size=1, shape=16) + 
     geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
     geom_hline(
-      yintercept=-log10(0.05/length(pval.t.test)),  # bonferroni only correction
+      yintercept=-log10(0.05/length(de.results$pval.t.test)),  # bonferroni only correction
       alpha=0.3
     ) + 
     labs(
@@ -1332,6 +1409,294 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
     bind_rows(df_de_mirna_topic_tmp)
 }
 
+combined_volcano <- ((volcano_list[[1]] / volcano_list[[2]]) | (volcano_list[[3]] / volcano_list[[4]])) & theme(legend.position = "bottom")
+combined_volcano <- combined_volcano + plot_layout(guides = "collect") + plot_annotation(tag_levels = 'A')
+combined_volcano
+
+
+# make AB row 1
+combined_volcano1 <- (volcano_list[[1]] + volcano_list[[2]] + volcano_list[[3]] + volcano_list[[4]]) & theme(legend.position = "bottom")
+# Use plot_layout to specify the layout and collect guides
+# Assuming a 2x2 layout for simplicity
+combined_volcano_layout <- combined_volcano1 + 
+  plot_layout(ncol = 2, nrow = 2, guides = "collect") +
+  plot_annotation(tag_levels = 'A')
+combined_volcano_layout
+
+combined_volcano_layout_row <- combined_volcano1 + 
+  plot_layout(ncol = 4, nrow = 1, guides = "collect") #+
+  #plot_annotation(tag_levels = 'A')
+combined_volcano_layout_row
+
+if (SAVE.files ==TRUE ){
+  filename.volcano_comb <- glue("{data_path_bestageing2022}/output/plots/de_analysis/20240126_001c_de_volcano_only_disease_specific_literature_mirnas_combined.svg")
+  ggsave(filename = filename.volcano_comb, plot = combined_volcano_layout, 
+         width = 10, height = 7, 
+         units = "in"  # default
+  )
+  filename.volcano_comb_row <- glue("{data_path_bestageing2022}/output/plots/de_analysis/20240126_001c_de_volcano_only_disease_specific_literature_mirnas_combined_row.svg")
+  ggsave(filename = filename.volcano_comb_row, plot = combined_volcano_layout_row, 
+         width = 14, height = 4, 
+         units = "in"  # default
+  )
+}
+
+
+
+
+# VOLCANO MATCHED ---------------------------------------------------------
+
+df_de_mirna_topic_matched <- tibble(
+  miRNA = character(0),
+  Topic = character(0)
+)
+
+
+volcano_list_matched <- list()
+
+for(mydisease in 1:nrow(all_combis)) {
+  # de.results_old <- readRDS(dplyr::last(list.files(path = "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022/output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
+  path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[mydisease]}_data01.rds")
+  data01 <- readRDS(file = path2dataprocessed)
+  # cave_dot here!!
+  # de.results <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_de_results_batch_corrected.rds"))
+  # matched results
+  de.results <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_de_results_batch_corrected_matched.rds"))
+  
+  
+  #results_logmedians <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_results_logmedians_batch_corrected.rds"))
+  # matched
+  results_logmedians <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_results_logmedians_batch_corrected_matched.rds")) 
+    
+  
+  ### FDR calculation
+  de.results$padj <- p.adjust(de.results$pval.t.test, method = "holm", n = length(de.results$pval.t.test))  # "BH" p-val-inflation (t-test due to shape of volcano for EDA)
+  de.results$padj.glm <- p.adjust(de.results$pval.glm, method = "holm", n = length(de.results$pval.t.test))
+  de.results$padj.glm_pca <- p.adjust(de.results$pval.glm_pca, method = "holm", n = length(de.results$pval.t.test))
+  
+  # literature mirnas UPDATE 20240125 
+  table_mirna_top50bm_score_alldiseases <- readRDS(file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125top50mirnas_all_diseases_pmids_gpt.rds"))
+  
+  ## manual calc 
+  # n.comparisons <- length(de.results$pval.t.test)
+  # inv.rank<-n.comparisons-rank(de.results$pval.t.test)
+  # adjusted.results.t.test<-de.results$pval.t.test*(n.comparisons)/(n.comparisons-inv.rank+1)
+  
+  de.results$diffexpressed <- "NO"
+  # if log2Foldchange > 1.0 and pvalue < 0.05, set as "UP" 
+  de.results$diffexpressed[de.results$log2FoldChange > 1.0 & 
+                             de.results$padj < 0.05] <- "UP"
+  # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+  de.results$diffexpressed[de.results$log2FoldChange < -1.0 & 
+                             de.results$padj < 0.05] <- "DOWN"
+  
+  log2folds_thresholds <- c(1, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1)
+  for (i in 1:length(log2folds_thresholds)) {
+    if ( sum(de.results$diffexpressed != "NO") < 15 ) {
+      de.results$diffexpressed[de.results$log2FoldChange > log2folds_thresholds[i] & 
+                                 de.results$padj < 0.05] <- "UP"
+      # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+      de.results$diffexpressed[de.results$log2FoldChange < - log2folds_thresholds[i] & 
+                                 de.results$padj < 0.05] <- "DOWN"
+      log2folds_thresh <- log2folds_thresholds[i]
+    } else{ 
+      log2folds_thresh <- log2folds_thresholds[i]
+      break
+    }
+  }
+  
+  ## label miRNAs 
+  # Step 1: select miRNAs from miRetrieve and disease
+  # UPDATE NEW 2023-09, not only top50 per disease BUT ALL above miRetrieve biomarker threshold
+  #disease_miRetrieve_mirnas <- miRetrieve_alldiseases %>%  # loaded for Vogel Figure 01
+  # mutate(Topic = toupper(Topic)) %>% 
+  # filter(Topic == toupper(all_combis$diseases[mydisease])) %>% 
+  # pull(TargetName)
+  
+  #update 2024 -- matched literature mirnas
+  disease_miRetrieve_mirnas <- table_mirna_top50bm_score_alldiseases %>% 
+    mutate(Topic = toupper(Topic)) %>% 
+    filter(Topic == toupper(all_combis$diseases[mydisease])) %>% 
+    pull(TargetName)
+  
+  disease_miRetrieve_mirnas_shared <- table_mirna_top50bm_score_alldiseases %>% 
+    #
+    mutate(Topic = toupper(Topic)) %>% 
+    #filter(Topic == toupper(all_combis$diseases[mydisease])) %>% 
+    pull(TargetName)
+  
+  
+  # init
+  de.results$delabel <- NA
+  de.results$delabel[de.results$diffexpressed != "NO"] <- 
+    de.results$miRNA[de.results$diffexpressed != "NO"]
+  # ONLY label miRNAs that are also known from LITERATURE 
+  ## old literature miRNAs 
+  # de.results$delabel <- ifelse(de.results$delabel %in% researchMiRNAAccession$miRNAName_v21,  de.results$delabel, NA)
+  # NEW from miRetrieve
+  
+  # all disease mirnas
+  de.results$delabel_all <- ifelse(de.results$delabel %in% disease_miRetrieve_mirnas_shared,  de.results$delabel, NA)
+  # disease specific
+  de.results$delabel <- ifelse(de.results$delabel %in% disease_miRetrieve_mirnas,  de.results$delabel, NA)
+  
+  ## color all literature miRNAs ----------------------------------------
+  #de.results$research_mirna <- ifelse(de.results$miRNA %in% researchMiRNAAccession$miRNAName_v21,  "Literature miRNA", "Not found in Literature")
+  de.results$research_mirna <- ifelse(de.results$miRNA %in% disease_miRetrieve_mirnas,  "Literature miRNA", "Not found in miRetrieve Top Hits")
+  de.results$research_mirna_all <- ifelse(de.results$miRNA %in% disease_miRetrieve_mirnas_shared,  "Literature miRNA", "Not found in miRetrieve Top Hits")
+  
+  
+  ## # label miRNA 106b-5p (special interest)
+  ## freys.mirnas <- c("hsa_mir_106b_3p", "hsa_mir_106b_5p")
+  ## de.results$freysmirna <- ifelse(de.results$miRNA %in% freys.mirnas, de.results$miRNA, NA)
+  ## de.results$freysmirna.col <- ifelse(de.results$miRNA %in% freys.mirnas, de.results$miRNA, "not selected")
+  
+  ## PLOT ##
+  # custom volcano -----------------------------------------------------------
+  subtitle.custom <- paste0("log2foldchange = \u00b1 ", log2folds_thresh, " for significant miRNAs (p_adj < 0.05)")
+  
+  
+  bh_threshold <- max(de.results$padj[de.results$padj < 0.05])
+  
+  de.results <- de.results %>% 
+    mutate(diffexpressed = factor(diffexpressed, levels = c("DOWN", "UP", "NO")))
+  de.results %>% 
+    mutate(delabel = gsub("_", "-", delabel)) %>% 
+    mutate(delabel= gsub("hsa-mir-", "miR-", delabel)) %>% 
+    ggplot(aes(x=log2FoldChange, y=-log10(pval.t.test), col=diffexpressed, label=delabel)) + 
+    geom_point(alpha=ifelse(de.results$diffexpressed != "NO", 1, 0.2), size=1, shape=16) + 
+    geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
+    geom_hline(
+      # yintercept=-log10(bh_threshold),  # BH threshold
+      yintercept=-log10(0.05/length(de.results$pval.t.test)),  # bonferroni only correction
+      alpha=0.3
+    ) + 
+    labs(
+      title = NULL, # paste0("Volcano plot of DE miRNAs in ", disease_vector[mydisease]),
+      subtitle = NULL, #subtitle.custom
+    ) +
+    xlab("log2 fold change") + 
+    ylab("-log10 (p-value)") + 
+    theme(legend.position = "none", 
+          plot.title = element_text(size = rel(1.5), hjust = 0.5), 
+          axis.title = element_text(size = rel(1.25)))+
+    #ggthemes::scale_color_few(name="Differentially expressed")+
+    ggrepel::geom_text_repel(show.legend = FALSE, size=5)+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    scale_color_manual(values = thematic::okabe_ito(6), name="Differentially expressed")+
+    my_base_theme() -> volcano_1
+  print(volcano_1)
+  
+  volcano_list_matched[[mydisease]] <- volcano_1
+  
+  if (SAVE.files ==TRUE ){
+    filename.volcano <- glue("{data_path_bestageing2022}/output/plots/de_analysis/{all_combis$diseases[mydisease]}/20240126_001c_de_volcano_only_disease_specific_literature_mirnas_matched.svg")
+    ggsave(filename = filename.volcano, plot = volcano_1, 
+           width = 9, height = 5, 
+           units = "in"  # default
+    )
+  }
+  # all literature mirnas
+  de.results %>% 
+    mutate(delabel_all = gsub("_", "-", delabel_all)) %>% 
+    mutate(delabel_all= gsub("hsa-mir-", "miR-", delabel_all)) %>% 
+    ggplot(aes(x=log2FoldChange, y=-log10(pval.t.test), col=diffexpressed, label=delabel_all)) + 
+    geom_point(alpha=ifelse(de.results$diffexpressed != "NO", 1, 0.2), size=1, shape=16) + 
+    geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
+    geom_hline(
+      # yintercept=-log10(bh_threshold),  # BH threshold
+      yintercept=-log10(0.05/length(de.results$pval.t.test)),  # bonferroni only correction
+      alpha=0.3
+    ) + 
+    labs(
+      title = NULL, # paste0("Volcano plot of DE miRNAs in ", disease_vector[mydisease]),
+      subtitle = NULL, #subtitle.custom
+    ) +
+    xlab("log2 fold change") + 
+    ylab("-log10 (p-value)") + 
+    theme(legend.position = "none", 
+          plot.title = element_text(size = rel(1.5), hjust = 0.5), 
+          axis.title = element_text(size = rel(1.25)))+
+    #ggthemes::scale_color_few(name="Differentially expressed")+
+    ggrepel::geom_text_repel(show.legend = FALSE, size=5)+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    scale_color_manual(values = thematic::okabe_ito(6), name="Differentially expressed")+
+    my_base_theme() -> volcano_1_all
+  print(volcano_1_all)
+  
+  if (SAVE.files ==TRUE ){
+    filename.volcano <- glue("{data_path_bestageing2022}/output/plots/de_analysis/{all_combis$diseases[mydisease]}/20240126_001c_de_volcano_ALL_disease_specific_literature_mirnas_matched.svg")
+    ggsave(filename = filename.volcano, plot = volcano_1_all, 
+           width = 9, height = 5, 
+           units = "in"  # default
+    )
+  }
+  
+  
+  # Color all literature miRNAs
+  de.results %>% 
+    mutate(delabel = gsub("_", "-", delabel)) %>% 
+    ggplot(aes(x=log2FoldChange, y=-log10(pval.t.test), col=research_mirna, label=delabel)) + 
+    geom_point(alpha=ifelse(de.results$research_mirna == "Literature miRNA", 1, 0.2), size=1, shape=16) + 
+    geom_vline(xintercept=c(-log2folds_thresh, log2folds_thresh), alpha=0.3) +
+    geom_hline(
+      yintercept=-log10(0.05/length(de.results$pval.t.test)),  # bonferroni only correction
+      alpha=0.3
+    ) + 
+    labs(
+      title = NULL, # paste0("Volcano plot of DE miRNAs in ", disease_vector[mydisease]),
+      subtitle = NULL, # subtitle.custom
+    ) +
+    xlab("log2 fold change") + 
+    ylab("-log10 adjusted p-value") + 
+    theme(legend.position = "none", 
+          plot.title = element_text(size = rel(1.5), hjust = 0.5), 
+          axis.title = element_text(size = rel(1.25)))+
+    theme_minimal(base_size = 16, base_family = 'Arial')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    scale_color_manual(values = thematic::okabe_ito(6), name=NULL)+
+    ggrepel::geom_text_repel(show.legend = FALSE, size=5) -> volcano_2
+  print(volcano_2)
+  
+  if (SAVE.files ==TRUE ){
+    filename.volcano2 <-glue("{data_path_bestageing2022}/output/plots/de_analysis/{all_combis$diseases[mydisease]}/001c_de_volcano_LITERATmiRNAs_ANNOT_matched.svg")
+    ggsave(filename = filename.volcano2, plot = volcano_2, 
+           width = 9, height = 5, 
+           units = "in"  # default
+    )
+  }
+  
+  # append list for venn diagram (intersection of de mirnas in different diseases)
+  df_de_mirna_topic_tmp <- de.results %>% 
+    filter(padj.glm_pca < 0.05) %>%   # padj here is adj pval.glm_pca
+    select(miRNA) %>% 
+    mutate(Topic = all_combis$diseases[mydisease])
+  df_de_mirna_topic_matched <- df_de_mirna_topic %>% 
+    bind_rows(df_de_mirna_topic_tmp)
+}
+
+
+# make AB row 1
+combined_volcano1_matched <- (volcano_list_matched[[1]] + volcano_list_matched[[2]] + volcano_list_matched[[3]] + volcano_list_matched[[4]]) & theme(legend.position = "bottom")
+# Use plot_layout to specify the layout and collect guides
+# Assuming a 2x2 layout for simplicity
+combined_volcano_layout_matched <- combined_volcano1_matched + 
+  plot_layout(ncol = 2, nrow = 2, guides = "collect") +
+  plot_annotation(tag_levels = 'A')
+
+combined_volcano_layout_matched
+
+if (SAVE.files ==TRUE ){
+  filename.volcano_comb_matched <- glue("{data_path_bestageing2022}/output/plots/de_analysis/20240126_001c_de_volcano_only_disease_specific_literature_mirnas_combined_matched.svg")
+  ggsave(filename = filename.volcano_comb_matched, plot = combined_volcano_layout_matched, 
+         width = 10, height = 7, 
+         units = "in"  # default
+  )
+}
+
+
 
 
 # Venn diagramm 4 miRetrieve -------------------------------------------------------------
@@ -1340,7 +1705,7 @@ list_vann <- list(
   ACS = miRetrieve_alldiseases$TargetName[miRetrieve_alldiseases$Topic == "ACS"],
   CAD = miRetrieve_alldiseases$TargetName[miRetrieve_alldiseases$Topic == "CAD"],
   DCM = miRetrieve_alldiseases$TargetName[miRetrieve_alldiseases$Topic == "DCM"],
-  HFrEF = miRetrieve_alldiseases$TargetName[miRetrieve_alldiseases$Topic == "HFrEF"]
+  ICM = miRetrieve_alldiseases$TargetName[miRetrieve_alldiseases$Topic == "HFrEF"]
 )
 
 # Create the Venn diagram
@@ -1356,7 +1721,7 @@ venn_plot <- ggvenn(list_vann) +
   )
 venn_plot_high <- venn_plot + coord_fixed(ratio = 2) 
 venn_plot
-
+venn_plot_high
 # for poster IFL
 venn_plot_poster <- ggvenn(
   list_vann, 
@@ -1378,12 +1743,12 @@ venn_plot_poster
 # exported svg 516(width)x500(height)
 
 if (SAVE.files ==TRUE ){
-  filename.venn_miRetrieve <-glue("{data_path_bestageing2022}/output/plots/venn_dia/001c_venn_LITERATmiRNAs_ANNOT.svg")
+  filename.venn_miRetrieve <-glue("{data_path_bestageing2022}/output/plots/venn_dia/20240215_001c_venn_LITERATmiRNAs_ANNOT.svg")
   ggsave(filename = filename.venn_miRetrieve, plot = venn_plot, 
          width = 8, height = 8, 
          units = "in"  # default
   )
-  filename.venn_miRetrieve_dimension_high <-glue("{data_path_bestageing2022}/output/plots/venn_dia/001c_venn_LITERATmiRNAs_ANNOT_high.svg")
+  filename.venn_miRetrieve_dimension_high <-glue("{data_path_bestageing2022}/output/plots/venn_dia/20240215_001c_venn_LITERATmiRNAs_ANNOT_high.svg")
   ggsave(filename = filename.venn_miRetrieve_dimension_high, plot = venn_plot_high, 
          width = 8, height = 8, 
          units = "in"  # default
@@ -1639,28 +2004,47 @@ sect_properties <- prop_section(
   #section_columns = section_columns(widths = c(4.75, 4.75))
 )
 
-for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
+for(mydisease in 1:nrow(all_combis)) {
   # de.results_old <- readRDS(dplyr::last(list.files(path = "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022/output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
   path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[mydisease]}_data01.rds")
   data01 <- readRDS(file = path2dataprocessed)
   # cave_dot here!!
-  de.results <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_de_results_batch_corrected.rds"))
-  results_logmedians <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_results_logmedians_batch_corrected.rds"))
+  # de.results_old <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_de_results_batch_corrected.rds"))
+  # with auc ci
+  de.results <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_de_results_batch_corrected.rds"))
+  
+  
+  # results_logmedians_old <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_results_logmedians_batch_corrected.rds"))
+  results_logmedians <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_results_logmedians_batch_corrected.rds"))
+  
+  # matched auc results
+  results_logmedians_matched <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_results_logmedians_batch_corrected_matched.rds")) %>% 
+    rename(auc_matched = auc, auc_matched_lci = aucs_univariate_lowerci, auc_matched_uci = aucs_univariate_upperci)
+  
   
   # get table in shape
   de.results_tmp <- de.results %>% 
+    # add matched auc
+    left_join(results_logmedians_matched %>% select(miR, auc_matched, auc_matched_lci, auc_matched_uci), by=c("miRNA"="miR")) %>% 
     mutate(miRNA = convert_mir_name_V(miRNA)) %>% 
     mutate(ttest_adjp = p.adjust(pval.t.test, method = "holm", n = length(de.results$pval.t.test)) ) %>% 
     mutate(glm_adjp = p.adjust(pval.glm, method = "holm", n = length(de.results$pval.t.test)) ) %>%
     mutate(glm_pca_adjp = p.adjust(pval.glm_pca, method = "holm", n = length(de.results$pval.t.test)) ) %>%
-    rename(ttest_rawp = pval.t.test, glm_rawp=pval.glm, glm_pca_rawp = pval.glm_pca, AUC = aucs_univariate) %>%
-    select(miRNA, ttest_rawp, ttest_adjp, glm_rawp, glm_pca_rawp, AUC, log2FoldChange) %>% 
+    rename(ttest_rawp = pval.t.test, glm_rawp=pval.glm, glm_pca_rawp = pval.glm_pca, 
+           # matched AUC!
+           AUC = auc_matched, AUC_LL = auc_matched_lci, AUC_UL = auc_matched_uci) %>%
+    select(miRNA, ttest_rawp, ttest_adjp, glm_rawp, #glm_pca_rawp, 
+           AUC, AUC_LL, AUC_UL, log2FoldChange) %>% 
     arrange(ttest_rawp) 
   
   de.results_tmp_word <- de.results_tmp %>% 
+    mutate(AUC = round(AUC, 3), AUC_LL=round(AUC_LL,3), AUC_UL=round(AUC_UL, 3) ) %>% 
+    mutate(AUC = glue("{AUC} ({AUC_LL}; {AUC_UL})")) %>% 
+    select(-c(AUC_LL, AUC_UL)) %>% 
     mutate(across(where(is.numeric) & !all_of(c("AUC", "log2FoldChange")), ~ sprintf("%.2E", .)))
+  de.results_tmp_word
   
-  file_path <- glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_de_results_batch_corrected.docx")
+  file_path <- glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_de_results_batch_corrected.docx")
   
   # table 
   de_results_flextable <- flextable(de.results_tmp_word) %>% 
@@ -1676,9 +2060,10 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])) {
 }
 
 
-
-
-
+# look at top values for i=1...4
+de.results_tmp %>% arrange(desc(AUC))
+max(de.results_tmp$AUC)
+min(de.results_tmp$AUC)
 
 
 

@@ -1,12 +1,13 @@
 
 
-# script saves several plots and summary data (performance data and vip data)
+# script saves several plots and summary data (performance data and vip data), analysis on literature miRNAs
 
 
 # Get system name
 system_name <- Sys.info()["nodename"]
 mount_filesystem <- TRUE
 SAVE.files <- TRUE
+miRetrieveBiomarker <- TRUE
 
 no_folds = 5
 no_repeats = 10
@@ -96,7 +97,6 @@ conflicted::conflict_prefer("expand", "tidyr")
 conflicted::conflicts_prefer(dplyr::slice)
 conflicted::conflicts_prefer(dplyr::filter)
 
-
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_calibration_plot.R"))
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_vip_plot.R"))
@@ -116,7 +116,95 @@ sect_properties <- prop_section(
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
 all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
-  filter(analysis=="full")
+  filter(analysis=="selected")
+
+
+###
+# load data ---------------------------------------------------------------
+# MIRNA DAT
+model_data1 <- clean_names(readRDS(file = glue('{data_path_BestAgeing}/data_new/model_data1.RDS')))  # has also multiclass col + diagnoses
+load(file = glue('{data_path_BestAgeing}/data/mirnas.rda'))  # "UKL-HD" n=765
+load(file = glue('{data_path_BestAgeing}/data/data.rda'))  # "UKL-HD" n=731
+all_mirnas <- clean_names(mirnas)
+names(all_mirnas) <- str_replace(string = names(all_mirnas), pattern = "mi_r", replacement = "mir")
+mirnas_disease <- clean_names(data)
+names(mirnas_disease) <- str_replace(string = names(mirnas_disease), pattern = "mi_r", replacement = "mir")
+rm(data, mirnas)
+
+## seq metadat 09-2023
+# batch info
+hbdx_metadat <- clean_names(readxl::read_excel(path = glue('{data_path_bestageing2022}/data/kahraman2023/230907_annotation_chrstoph_reich.xlsx')))  # has also multiclass col + diagnoses
+#RIN
+rin_mean <- mean(as.numeric(hbdx_metadat$rin), na.rm=TRUE)
+rin_sd <- sd(as.numeric(hbdx_metadat$rin), na.rm=TRUE)
+
+# detection matrix
+det_mat_all_mirnas <- read.table(glue("{data_path_bestageing2022}/data/kahraman2023/det_mat_all_mirnas.txt")) %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  clean_names()
+colnames(det_mat_all_mirnas) <- str_replace(string = colnames(det_mat_all_mirnas), pattern = "mi_r", replacement = "mir")
+rownames(det_mat_all_mirnas) <- gsub("\\.", "-", rownames(det_mat_all_mirnas))
+# convert to tibble
+det_mat_all_mirnas <- det_mat_all_mirnas %>% 
+  rownames_to_column(var = "pat_id") %>% 
+  as_tibble()
+
+
+# hbdx_metadat %>% select(slide_id, slide_array_id)
+unique_slide_ids <- length(unique(hbdx_metadat$slide_id))
+arrays_per_slide <- nrow(hbdx_metadat) / unique_slide_ids
+sum_duplicated_samples <- sum(duplicated(hbdx_metadat$customer_id)); index_duplicated_samples <- duplicated(hbdx_metadat$customer_id)
+duplicate_ids <- hbdx_metadat[index_duplicated_samples, ] %>% pull(customer_id)
+# check
+checked_duplicated_hbdx <- hbdx_metadat %>% 
+  filter(customer_id %in% duplicate_ids) %>% 
+  select(customer_id, date_analysis, sample_qc, array_qc) %>% arrange(customer_id)
+# remove
+hbdx_metadat <- hbdx_metadat %>% 
+  distinct(customer_id, .keep_all = TRUE)
+
+# load-mirnas-from_research
+# create vector of described mirnas
+load(glue("{data_path_BestAgeing}/data_research/fromR/researchMiRNAAccession.rda"))
+# check if all mirnas are named the same
+researchMiRNAAccession$miRNAName_v21 <-  make_clean_names(researchMiRNAAccession$miRNAName_v21) %>% 
+  str_replace(pattern = "mi_r", replacement = "mir")
+# researchMiRNAAccession$miRNAName_v21[(!researchMiRNAAccession$miRNAName_v21 %in% colnames(all_mirnas))] 
+## "hsa_mir_106a_5p" --> should be --> "hsa_mir_106b_5p"
+## all_mirnas[,(str_detect(string = colnames(all_mirnas), pattern = "106"))]
+## researchMiRNAAccession[which(!researchMiRNAAccession$miRNAName_v21 %in% colnames(all_mirnas)),]
+researchMiRNAAccession$miRNAName_v21[researchMiRNAAccession$miRNAName_v21 == "hsa_mir_106a_5p"] <- "hsa_mir_106b_5p"
+
+###
+# load-metadat --
+## DIAGNOSES DAT
+load(glue("{data_path_BestAgeing}/data/diagnoses_df.rda"))
+
+## SURVIVAL DAT
+survival_dat <- clean_names(readRDS(glue("{data_path_bestageing2022}/data/202211908_XMELD_abfrage_best_ageing.rds"))) # %>% 
+# original path "/mnt/users/reich/XMeldPortal_neu/meldeportal-tools-meldeportalclient-9.3/Rout/202211908_XMELD_abfrage_best_ageing.rds"
+
+## metadata from DB
+# https://www.bestageing.org/Pages/Login.aspx?ReturnUrl=%2f&AspxAutoDetectCookieSupport=1
+load(glue("{data_path_BestAgeing}/data/clean_all_meta.rda"))  # created in "scripts/_prepare_metadata.R"
+clean_all_meta <- clean_all_meta %>% 
+  mutate(age = ifelse(age < 18, NA, age))  # wrong age remove
+# cath data? "hkdb"
+
+## load all original metadat xlsx files again to make sure that also overlapped 
+#patients (e.g. dcm+cad) are in each group
+control_ids <- read_excel(glue("{data_path_BestAgeing}/data/pheno_controls.xlsx")) %>% 
+  dplyr::pull(BestAgeingCode)
+
+# "UKL-HD-00318" both in Control and CAD dataset, looked it up (HK Nr 1289-2015): KHK ohne hg Stenosen, LV gut --> assign to CAD only
+control_ids <- control_ids[control_ids != "UKL-HD-00318"]
+
+
+diseases <- c("dcm", "acs", "cad", "hfref")
+analysis <- c("selected", "full")
+all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
+  filter(analysis=="selected")
 
 
 # START RUN analysis on test set for each disease ................... --------
@@ -133,8 +221,70 @@ if(RUN.test == TRUE) {
     }
     
     data01 <- readRDS(file = path2dataprocessed)
+    
+    ## CHOOSE miRetrieve Biomarkers? -----------
+    if (miRetrieveBiomarker==TRUE) {
+      path2biomarker <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-27-human-disease_biomarker_with_accession.rds")
+      path2biomarker_count <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-27-human-df_count_both_with_accession.rds")
+      human_disease_biomarker <- readRDS(file = path2biomarker)
+      human_disease_biomarker_count <- readRDS(file = path2biomarker_count)
+      
+      # 1) most hits on miRetrieve
+      human_disease_biomarker_count_tidy <- 
+        human_disease_biomarker_count %>%
+        drop_na(Accession) %>%
+        arrange(desc(miRetrieve)) %>%
+        dplyr::slice(1:30)
+      
+      # 2) highest BM score <-- used this
+      human_disease_biomarker <- human_disease_biomarker %>% 
+        drop_na(Accession) %>% 
+        arrange(desc(Biomarker_score)) %>% 
+        left_join(human_disease_biomarker_count %>% 
+                    select(Accession, miRetrieve, PubMed), 
+                  by=c("Accession"="Accession")) %>% 
+        # drop_na(miRetrieve) %>%   # some PMIDs not in most hits ;)
+        mutate(miRetrieve = ifelse(is.na(miRetrieve), 0, miRetrieve) ) %>% 
+        ## !! GROUP BY distinct miRNAs!!
+        group_by(Accession) %>% 
+        mutate(max_value = (Biomarker_score + miRetrieve)) %>% 
+        arrange(desc(max_value)) %>% 
+        slice(1) %>% 
+        ungroup() %>% 
+        arrange(desc(max_value)) %>% 
+        drop_na(TargetName) 
+      
+      human_disease_biomarker$TargetName <-  make_clean_names(human_disease_biomarker$TargetName) %>% 
+        str_replace(pattern = "mi_r", replacement = "mir")
+      # sanity check if miRNA names are in sequenced df
+      human_disease_biomarker <- human_disease_biomarker %>% 
+        filter(TargetName %in% colnames(data01) ) %>% 
+        slice(1:50)  # top 50 
+      
+      # save for documentation
+      #saveRDS(object = human_disease_biomarker, 
+      #        file = glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{all_combis$diseases[i]}/{Sys.Date()}-human-disease_biomarker_with_accession_max_value.rds"))
+    }
+    
+    ## select cardiovascular miRNAs
+    #data01 <- data01 %>% 
+    #  select(pat_id, disease, age, sex, human_disease_biomarker$TargetName)
+    
+    
+    # UPDATE 20240125 
+    table_mirna_top50bm_score_alldiseases <- readRDS(file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125top50mirnas_all_diseases_pmids_gpt.rds"))
+    # disease specific
+    table_mirna_top50bm_score_alldiseases <- table_mirna_top50bm_score_alldiseases %>% 
+      filter(toupper(Topic) == toupper(all_combis$diseases[i]))
+    
+    # select cardiovascular miRNAs
+    data01 <- data01 %>% 
+      select(pat_id, disease, age, sex, any_of(table_mirna_top50bm_score_alldiseases$TargetName))  # NEW
+    
     no.mirnas <- ncol(data01) - 4
+    
     text_disease <- stringr::str_to_upper(all_combis$diseases[i])
+    
     set.seed(123) # get same indices 
     modeldat <- data01
     
@@ -149,6 +299,8 @@ if(RUN.test == TRUE) {
     # plot(m.out, type = "jitter")
     modeldat <- match.data(m.out)
     
+    
+    ## CONTINUE ---------------------------------------
     # make control first factor for all analyses ;)
     modeldat <- modeldat %>% 
       mutate(disease = factor(disease, levels = c("control", all_combis$diseases[i])))
@@ -160,7 +312,10 @@ if(RUN.test == TRUE) {
     
     # load race results ---------------------------------------------------------
     # more logit
-    race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE_more_logit_matchIt.rds"))
+    # race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_20240121_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_SELECTED_miRetrieve_TRUE_randomMIR_FALSE_more_logit_matchIt.rds"))
+    # updated literature mirs to match 
+    race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_20240125_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_SELECTED_miRetrieve_TRUE_randomMIR_FALSE_more_logit_matchIt.rds"))
+    
     
     # place to store
     best_results <- list()  # hyperparams selected
@@ -219,6 +374,10 @@ if(RUN.test == TRUE) {
         finalize_workflow(best_results[[models]]) %>% 
         last_fit(split = dat_split)
       
+      # save for later (script 005 survival)
+      testresults_save <- glue("{data_path_bestageing2022}/output/test_set_results/test_results_202311/{all_combis$diseases[i]}/selected_analysis/004c_20240121_TEST_RESULTS_{wflow_id}_analysis_selected_MATCHED.rds")
+      saveRDS(test_results[[models]], file = testresults_save)
+      
       aucs <- append(aucs, collect_metrics(test_results[[models]])[[3]][2])
       accuracies <- append(accuracies, collect_metrics(test_results[[models]])[[3]][1])
       
@@ -268,7 +427,6 @@ if(RUN.test == TRUE) {
       caret_conf_mat_sens09[[models]] <-  caret::confusionMatrix(predictions_loop[[models]]$.pred_class_sens09,
                                                                  predictions_loop[[models]]$disease, 
                                                                  positive = all_combis$diseases[i])
-      
       # epiR, calc CIs
       conf_mat <- caret_conf_mat_sens09[[models]]$table
       # Extract the counts
@@ -289,7 +447,7 @@ if(RUN.test == TRUE) {
         rbind(new_row)
       
       filename_epiR <- 
-        glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/models_full/004c_{wflow_id}_epiR_crosstabs_MATCHED.csv")
+        glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/models_selected/004c_20240121_{wflow_id}_epiR_crosstabs_MATCHED.csv")
       write.csv2(x = epi_table, file = filename_epiR)
       
       #print(caret_conf_mat_sens09[[models]])
@@ -339,7 +497,7 @@ if(RUN.test == TRUE) {
       
       if(SAVE.files == TRUE) {
         filename_plot_ROC_wflow_id <- 
-          glue("{data_path_bestageing2022}/output/plots/roc_curves/{all_combis$diseases[i]}/004c_ROC_{wflow_id}_analysis_full_analysis_m20_matchIt.svg")
+          glue("{data_path_bestageing2022}/output/plots/roc_curves/{all_combis$diseases[i]}/004c_20240121_ROC_{wflow_id}_analysis_selected_analysis_matchIt.svg")
         ggsave(filename = filename_plot_ROC_wflow_id, 
                plot = roc_plot_test, 
                width = 3, height = 3, 
@@ -377,7 +535,7 @@ if(RUN.test == TRUE) {
       #   plot_annotation(tag_levels = 'A')
       
       filename_plot_patchwork_ROC_calib <- 
-        glue("{data_path_bestageing2022}/output/plots/ml_roc_calib_patchwork/{all_combis$diseases[i]}/004c_patchwork_ROC_calib_{wflow_id}_analysis_full_analysis_m20_matchIt")
+        glue("{data_path_bestageing2022}/output/plots/ml_roc_calib_patchwork/{all_combis$diseases[i]}/004c_20240121_patchwork_ROC_calib_{wflow_id}_analysis_selected_analysis_matchIt")
       
       ggsave(filename = glue("{filename_plot_patchwork_ROC_calib}.svg"), 
              plot = patchwork_roc_calib, 
@@ -413,7 +571,7 @@ if(RUN.test == TRUE) {
       arrange(desc(AUC))
     
     filename_df_performance_summary_sens09 <- 
-      glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/004c_performance_summary_table_analysis_full_analysis_m20_matchIt.rds")
+      glue("{data_path_bestageing2022}/output/performance_summary_df/{all_combis$diseases[i]}/004c_20240121_performance_summary_table_analysis_selected_analysis_matchIt.rds")
     saveRDS(object = performance.summary.table.sens09, file = filename_df_performance_summary_sens09)
     
     # next disease
@@ -438,8 +596,70 @@ for (i in 1:nrow(all_combis)){
   }
   
   data01 <- readRDS(file = path2dataprocessed)
+  
+  ## CHOOSE miRetrieve Biomarkers? -----------
+  if (miRetrieveBiomarker==TRUE) {
+    path2biomarker <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-27-human-disease_biomarker_with_accession.rds")
+    path2biomarker_count <- glue("{data_path_bestageing2022}/data-literature/miRetrieve/{all_combis$diseases[i]}/2023-07-27-human-df_count_both_with_accession.rds")
+    human_disease_biomarker <- readRDS(file = path2biomarker)
+    human_disease_biomarker_count <- readRDS(file = path2biomarker_count)
+    
+    # 1) most hits on miRetrieve
+    human_disease_biomarker_count_tidy <- 
+      human_disease_biomarker_count %>%
+      drop_na(Accession) %>%
+      arrange(desc(miRetrieve)) %>%
+      dplyr::slice(1:30)
+    
+    # 2) highest BM score <-- used this
+    human_disease_biomarker <- human_disease_biomarker %>% 
+      drop_na(Accession) %>% 
+      arrange(desc(Biomarker_score)) %>% 
+      left_join(human_disease_biomarker_count %>% 
+                  select(Accession, miRetrieve, PubMed), 
+                by=c("Accession"="Accession")) %>% 
+      # drop_na(miRetrieve) %>%   # some PMIDs not in most hits ;)
+      mutate(miRetrieve = ifelse(is.na(miRetrieve), 0, miRetrieve) ) %>% 
+      ## !! GROUP BY distinct miRNAs!!
+      group_by(Accession) %>% 
+      mutate(max_value = (Biomarker_score + miRetrieve)) %>% 
+      arrange(desc(max_value)) %>% 
+      slice(1) %>% 
+      ungroup() %>% 
+      arrange(desc(max_value)) %>% 
+      drop_na(TargetName) 
+    
+    human_disease_biomarker$TargetName <-  make_clean_names(human_disease_biomarker$TargetName) %>% 
+      str_replace(pattern = "mi_r", replacement = "mir")
+    # sanity check if miRNA names are in sequenced df
+    human_disease_biomarker <- human_disease_biomarker %>% 
+      filter(TargetName %in% colnames(data01) ) %>% 
+      slice(1:50)  # top 50 
+    
+    # save for documentation
+    #saveRDS(object = human_disease_biomarker, 
+    #        file = glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{all_combis$diseases[i]}/{Sys.Date()}-human-disease_biomarker_with_accession_max_value.rds"))
+  }
+  #b 
+  #b # select cardiovascular miRNAs
+  #b data01 <- data01 %>% 
+  #b   select(pat_id, disease, age, sex, human_disease_biomarker$TargetName)
+  #b 
+  
+  # UPDATE 20240125 
+  table_mirna_top50bm_score_alldiseases <- readRDS(file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125top50mirnas_all_diseases_pmids_gpt.rds"))
+  # disease specific
+  table_mirna_top50bm_score_alldiseases <- table_mirna_top50bm_score_alldiseases %>% 
+    filter(toupper(Topic) == toupper(all_combis$diseases[i]))
+  
+  # select cardiovascular miRNAs
+  data01 <- data01 %>% 
+    select(pat_id, disease, age, sex, any_of(table_mirna_top50bm_score_alldiseases$TargetName))  # NEW
+  
+  
   no.mirnas <- ncol(data01) - 4
   text_disease <- stringr::str_to_upper(all_combis$diseases[i])
+  
   set.seed(123) # get same indices 
   modeldat <- data01
   
@@ -454,6 +674,8 @@ for (i in 1:nrow(all_combis)){
   # plot(m.out, type = "jitter")
   modeldat <- match.data(m.out)
   
+  
+  ## CONTINUE ------------------------------
   # make control first factor for all analyses ;)
   modeldat <- modeldat %>% 
     mutate(disease = factor(disease, levels = c("control", all_combis$diseases[i])))
@@ -464,7 +686,7 @@ for (i in 1:nrow(all_combis)){
   
   folds <- vfold_cv(dat_train, strata = disease, v = no_folds, repeats = no_repeats)
   
-  n_feature_select <- 20  # how many mirna select in training?
+  #n_feature_select <- 20  # how many mirna select in training?
   normalized_rec <- 
     recipe(disease ~ ., data = dat_train) %>%
     ### https://recipes.tidymodels.org/articles/Ordering.html
@@ -480,8 +702,8 @@ for (i in 1:nrow(all_combis)){
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
     step_YeoJohnson() %>% 
     step_normalize(all_numeric_predictors()) %>%  
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+  #step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   # B
   poly_rec <- 
     recipe(disease ~ ., data = dat_train) %>%
@@ -492,8 +714,8 @@ for (i in 1:nrow(all_combis)){
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
     step_normalize(all_numeric_predictors()) %>%  
     step_poly(all_numeric_predictors()) %>% 
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(starts_with("age"), starts_with("sex")), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+  #step_select_forests(all_predictors(), -c(starts_with("age"), starts_with("sex")), outcome = "disease", top_p = n_feature_select)
   #step_interact( ~all_predictors():all_predictors())
   
   # C
@@ -507,11 +729,11 @@ for (i in 1:nrow(all_combis)){
     step_impute_mode(all_nominal_predictors(), -disease) %>% 
     # DECORRELATE
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+  #step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   
-  # more logit and matched
-  race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_randomMIR_FALSE_more_logit_matchIt.rds"))
+  race_results <- readRDS(glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_20240125_tune_race_results_repeats_10_folds_5_{toupper(all_combis$diseases[i])}_analysis_SELECTED_miRetrieve_TRUE_randomMIR_FALSE_more_logit_matchIt.rds"))
+  
   
   ### filter first, vip takes long, and we do not like all models ;) ------------
   race_results <- race_results %>% 
@@ -547,6 +769,7 @@ for (i in 1:nrow(all_combis)){
     
     ## Global Explanations --------------------------------------------------------
     # We compute variable importance by permutating features. If shuffling a column causes a large degradation in model performance, it is important and vica versa. This approach is model agnostic. 
+    # https://ema.drwhy.ai/featureImportance.html
     
     model_vars <- simple_rec %>% summary()
     
@@ -575,7 +798,7 @@ for (i in 1:nrow(all_combis)){
                         loss_function = loss_default("classification")    #  # loss_default(explainer_xgb$model_info$type) "One minus AUC"
     )
     
-    saveRDS(vip1, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_{wflow_id}_vip1_matchIt.rds"))
+    saveRDS(vip1, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_20240121_selected_{wflow_id}_vip1_matchIt.rds"))
     
     # cave used feature selection, but cannot supply less vars to explain tidymodels
     predictor_vars_tmp <- extract_recipe(last_fit_model) %>% 
@@ -596,7 +819,7 @@ for (i in 1:nrow(all_combis)){
       summarize(dropout_loss = mean(dropout_loss)) %>% 
       arrange((dropout_loss))
     
-    saveRDS(features_importance_table, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_{wflow_id}_features_importance_table_matchIt.rds"))
+    saveRDS(features_importance_table, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_20240121_selected_{wflow_id}_features_importance_table_matchIt.rds"))
     
     common_vars_new <- setNames(list(features_importance_table$variable), wflow_id)
     
@@ -605,7 +828,7 @@ for (i in 1:nrow(all_combis)){
     variable_imp_plot <- ggplot_imp(vip1_tmp)
     variable_imp_plot
     
-    vip_plot_filename <- glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_{wflow_id}_variable_imp_plot_matchIt")
+    vip_plot_filename <- glue("{data_path_bestageing2022}/output/plots/feature_importance/{all_combis$diseases[i]}/004c_20240121_{wflow_id}_variable_imp_plot_selectedmiRetrieve_matchIt")
     ggsave(
       filename = glue("{vip_plot_filename}.svg"), plot = variable_imp_plot, 
       width = 6, height = 6, 
@@ -658,10 +881,10 @@ for (i in 1:nrow(all_combis)){
     as_tibble() %>% 
     arrange(desc(Count))
   df_intersections
-  saveRDS(object = df_intersections, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection_matchIt.rds"))
+  saveRDS(object = df_intersections, file = glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_20240121_selected_analysis_m50_vars_intersection_matchIt.rds"))
   
   # docx
-  file_path <- glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_full_m20_selected_vars_intersection_matchIt.docx")
+  file_path <- glue("{data_path_bestageing2022}/output/feature_importance/{all_combis$diseases[i]}/004c_20240121_selected_analysis_m50_selected_vars_intersection_matchIt.docx")
   df_intersections_flextable <- flextable(df_intersections) %>% 
     colformat_double(
       big.mark = ",", digits = 3, na_str = "N/A"
