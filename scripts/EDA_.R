@@ -37,6 +37,14 @@ require(kableExtra, lib.loc = lib_path)
 
 source(glue("{data_path_BestAgeing}/scripts/_prepare_metadata.R"))
 
+all_patients_recruited <- openxlsx::read.xlsx(glue("{data_path_BestAgeing}/data/pheno_orig/BestAgeing_Report_30_01_2019-all.xlsx")) %>% 
+  clean_names() %>% 
+  as_tibble()
+
+all_patients_recruited %>% 
+  distinct(best_ageing_code) %>% 
+  nrow()
+
 # get overview ------------------------------------------------------------
 skimr::skim(clean_all_meta)
 colnames(clean_all_meta)

@@ -35,16 +35,29 @@ if (system_name == "MacBook-Pro-CR-2065.local" | stringr::str_detect(string = sy
 # load data ---------------------------------------------------------------
 
 # load data created in script "main.Rmd"
+# feature select
 performance_table_ACS_XGB_full <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/acs/models_full/004c_XGB_epiR_crosstabs.csv"))
 performance_table_CAD_XGB_full <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/cad/models_full/004c_XGB_epiR_crosstabs.csv"))
 performance_table_DCM_XGB_full <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/dcm/models_full/004c_XGB_epiR_crosstabs.csv"))
 performance_table_HFREF_XGB_full <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/hfref/models_full/004c_XGB_epiR_crosstabs.csv"))
 
+performance_table_ACS_XGB_full <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/acs/models_full/004c_XGB_epiR_crosstabs.csv"))
+performance_table_CAD_XGB_full_matched <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/cad/models_full/004c_XGB_epiR_crosstabs_MATCHED.csv"))
+performance_table_DCM_logsimple_full <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/dcm/models_full/004c_logistic_reg_simple_epiR_crosstabs.csv"))
+performance_table_HFREF_logsimple_full_matched <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/hfref/models_full/004c_logistic_reg_simple_epiR_crosstabs_MATCHED.csv"))
+
+# a priori
 performance_table_ACS_XGB_selected <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/acs/models_selected/004c_XGB_epiR_crosstabs.csv"))
 performance_table_CAD_XGB_selected <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/cad/models_selected/004c_XGB_epiR_crosstabs.csv"))
 performance_table_DCM_XGB_selected <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/dcm/models_selected/004c_XGB_epiR_crosstabs.csv"))
 performance_table_HFREF_XGB_selected <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/hfref/models_selected/004c_XGB_epiR_crosstabs.csv"))
 
+performance_table_ACS_XGB_selected <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/acs/models_selected/004c_XGB_epiR_crosstabs.csv"))
+performance_table_CAD_logsimple_selected_matched <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/cad/models_selected/004c_20240121_logistic_reg_simple_epiR_crosstabs_MATCHED.csv"))
+performance_table_DCM_logsimple_selected <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/dcm/models_selected/004c_logistic_reg_simple_epiR_crosstabs.csv"))
+performance_table_HFREF_RF_selected_matched <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/hfref/models_selected/004c_20240121_RF_epiR_crosstabs_MATCHED.csv"))
+
+performance_table_ACS_XGB_selected_matched <- read.csv2(file = glue("{data_path_bestageing2022}/output/performance_summary_df/acs/models_selected/004c_XGB_epiR_crosstabs_MATCHED.csv"))
 
 # create for only full model -------------------------------------------------
 
@@ -81,9 +94,9 @@ gt_table
 
 all_performance_full <- bind_rows(
   performance_table_ACS_XGB_full %>% mutate(disease = "ACS"),
-  performance_table_CAD_XGB_full %>% mutate(disease = "CAD"),
-  performance_table_DCM_XGB_full %>% mutate(disease = "DCM"),
-  performance_table_HFREF_XGB_full %>% mutate(disease = "HFREF"),
+  performance_table_CAD_XGB_full_matched %>% mutate(disease = "CAD"),
+  performance_table_DCM_logsimple_full %>% mutate(disease = "DCM"),
+  performance_table_HFREF_logsimple_full_matched %>% mutate(disease = "HFREF"),
 ) %>%
   select(-X) |> 
   filter(statistic %in% c("sp", "se", "pv.pos", "pv.neg", "auc")) |> 
@@ -99,9 +112,9 @@ all_performance_full <- bind_rows(
 
 all_performance_selected <- bind_rows(
   performance_table_ACS_XGB_selected %>% mutate(disease = "ACS"),
-  performance_table_CAD_XGB_selected %>% mutate(disease = "CAD"),
+  performance_table_CAD_logsimple_selected_matched %>% mutate(disease = "CAD"),
   performance_table_DCM_XGB_selected %>% mutate(disease = "DCM"),
-  performance_table_HFREF_XGB_selected %>% mutate(disease = "HFREF"),
+  performance_table_HFREF_RF_selected_matched %>% mutate(disease = "HFREF"),
 ) %>%
   select(-X) |> 
   filter(statistic %in% c("sp", "se", "pv.pos", "pv.neg", "auc")) |> 
@@ -147,8 +160,12 @@ gt_table_combined <- all_performance_combined %>%
   ) |> 
   cols_label( 
     statistic = "Statistic", 
-    est_full = "Feature selection", 
-    est_selected = "A-priori selected features"
+    est_full = html("<strong>Global Feature Selection Model<br>(GFS-Model)</strong>"), 
+    est_selected = html("<strong>A-priori miRNA Model<br>(APM-Model)</strong>")
+  ) %>% 
+  cols_move(
+    columns = est_full, 
+    after = est_selected
   )
 
 gt_table_combined

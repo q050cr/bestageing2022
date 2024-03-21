@@ -47,16 +47,34 @@ all_combis <- tidyr::crossing(diseases, analysis) %>%
 
 
 # created in 03miRetrieve_topmirnas_all_diseases.R 
-table_mirna_top50bm_score_alldiseases <- readRDS(file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/2023-07-27_top50mirnas_all_diseases_pmids_gpt.rds"))  # new
+table_mirna_top50bm_score_alldiseases_old <- readRDS(file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/2023-07-27_top50mirnas_all_diseases_pmids_gpt.rds"))  # new
+# new 2024 filtered for detection miRNA
+table_mirna_top50bm_score_alldiseases <- readRDS(file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125top50mirnas_all_diseases_pmids_gpt.rds"))
+
 
 # init
 prepare_gt_dat <- tibble(Topic=NA, TargetName=NA, Accession=NA, Biomarker_score=NA, miRetrieve=NA, padj=NA, padj.glm=NA, sign_indicator=NA, boxplots=NA, rocaucs=NA, PMIDs=NA)
 
-for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
-  # created in model_de_analysis.R
-  data01 <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/data01.rds"))
-  de_results <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/de_results.rds"))
-  results_logmedians <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/results_logmedians.rds"))
+for(mydisease in 1:nrow(all_combis)){
+
+  # we also need subset of filtered miRNA profiled # NEW
+  path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[mydisease]}_data01.rds")
+  if(!file.exists(path2dataprocessed)) {
+    next
+  }
+  data01 <- readRDS(file = path2dataprocessed)
+  
+  de_results_old <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/de_results.rds"))
+  de_results_old2 <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_de_results_batch_corrected.rds"))
+  # with auc ci
+  de_results <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_de_results_batch_corrected.rds"))
+  
+  results_logmedians_old <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/results_logmedians.rds"))
+  results_logmedians_old2 <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/001c_results_logmedians_batch_corrected.rds"))
+  results_logmedians <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_results_logmedians_batch_corrected.rds"))
+  
+  results_logmedians_matched <- readRDS(file = glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_results_logmedians_batch_corrected_matched.rds")) %>% 
+    rename(auc_matched = auc, auc_matched_lci = aucs_univariate_lowerci, auc_matched_uci = aucs_univariate_upperci)
   
   # need to specify plot function here because of change in diseases
   ggboxplot_table <- function(plotdata, miRNA_name, plot_disease){
@@ -102,6 +120,7 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
   filtered4disease <- table_mirna_top50bm_score_alldiseases %>% 
     filter(toupper(Topic) == toupper(all_combis$diseases[mydisease])) %>% 
     left_join(results_logmedians, by=c("TargetName"="miR")) %>% 
+    left_join(results_logmedians_matched %>% select(miR, auc_matched, auc_matched_lci, auc_matched_uci), by=c("TargetName"="miR")) %>% 
     arrange(desc(auc)) 
   
   chosen_mirnas <- filtered4disease$TargetName
@@ -112,7 +131,10 @@ for(mydisease in 1:nrow(all_combis[all_combis[["analysis"]] == "full", ])){
   prepare_gt_dat_tmp <- tibble(TargetName = chosen_mirnas,
                                #boxplots = plot_list_boxplots,   # looads of space; size in MB: object.size(prepare_gt_dat_tmp) / 1024^2
                                rocaucs = plot_list_rocaucs) %>% 
-    left_join(filtered4disease %>% select(Topic, TargetName, Accession, Biomarker_score, miRetrieve, max_value, padj, padj.glm, sign_indicator, auc, PMIDs), 
+    left_join(filtered4disease %>% select(Topic, TargetName, Accession, Biomarker_score, miRetrieve, max_value, padj, padj.glm, sign_indicator, auc, 
+                                          aucs_univariate_lowerci, aucs_univariate_upperci, 
+                                          auc_matched, auc_matched_lci, auc_matched_uci,
+                                          PMIDs), 
               by= c("TargetName"="TargetName"))
   
   prepare_gt_dat <- bind_rows(prepare_gt_dat, prepare_gt_dat_tmp)
@@ -270,7 +292,7 @@ prepare_gt_dat1 %>%
 gt_literature_miRetrieve
 
 if(SAVE.files == TRUE) {
-  filename_gt_miretrieve <- glue("{data_path_bestageing2022}/output/tables/literature_miRetrieve/{Sys.Date()}_table_miRetrieve_miRNA_top5")
+  filename_gt_miretrieve <- glue("{data_path_bestageing2022}/output/tables/literature_miRetrieve/20240125_table_miRetrieve_miRNA_top5")
   gtsave(data = gt_literature_miRetrieve, glue("{filename_gt_miretrieve}.html")) 
   # gtsave(data = gt_literature_miRetrieve, glue("{filename_gt_miretrieve}.docx")) 
 }
@@ -403,7 +425,7 @@ arranged_plot <- ggarrange(arranged_plot, venn_plot_high, nrow = 1, ncol = 2, al
 arranged_plot
 
 if(SAVE.files == TRUE) {
-  filename_plots_top50_pval_auc <- glue("{data_path_bestageing2022}/output/plots/miRetrieve/stats/top50_miRetrieve_stats_sign_aucs.svg")
+  filename_plots_top50_pval_auc <- glue("{data_path_bestageing2022}/output/plots/miRetrieve/stats/20240125top50_miRetrieve_stats_sign_aucs.svg")
   ggsave(filename = filename_plots_top50_pval_auc, plot =  arranged_plot, 
          width = 10, height = 8, 
          units = "in"  # default
@@ -513,6 +535,8 @@ gt(groupname_col = "Topic") %>%
     table.font.size = px(10L)
   ) -> gt_literature_miRetrieve
 
+gt_literature_miRetrieve
+
 gt_literature_miRetrieve %>% 
   gtsave("tab_1.docx")
 
@@ -522,6 +546,7 @@ prepare_gt_dat1 %>%
   mutate(
     TargetName = str_replace_all(TargetName, "_", "-") # replace underscores with hyphens
   ) %>% 
+  mutate(TargetName = gsub("hsa-mir-", "hsa-miR-", TargetName)) %>% 
   mutate(
     Topic = case_when(
       Topic == "ACS" ~ "Acute Coronary Syndrome",
@@ -541,16 +566,22 @@ prepare_gt_dat1 %>%
   ) %>% 
   group_by(Topic) %>% 
   # THIS ALLOWS THE ORDERING OF THE SPANNERS! 
-  arrange(Topic, desc(auc), desc(max_value)) %>%  # arrange(Topic, desc(auc), desc(max_value))
+  arrange(Topic, desc(auc_matched), desc(max_value)) %>%  # arrange(Topic, desc(auc), desc(max_value))
   #slice(1:5) %>%   # only top 5
   relocate(
     max_value, .after = Accession
   ) %>% 
   select(-c(rocaucs, Biomarker_score, miRetrieve, padj.glm, padj, sign_indicator)) %>% 
   mutate(auc = round(auc,3)) %>% 
+  mutate(aucs_univariate_lowerci = round(aucs_univariate_lowerci, 3)) %>% 
+  mutate(aucs_univariate_upperci = round(aucs_univariate_upperci, 3)) %>% 
+  mutate(auc_matched = round(auc_matched, 3), auc_matched_lci = round(auc_matched_lci, 3), auc_matched_uci = round(auc_matched_uci, 3)) %>% 
+  
+  # new
+  select(-c(auc,aucs_univariate_lowerci,aucs_univariate_upperci)) %>% 
   
   ## start gt -------------------------------------------------------------
-gt(groupname_col = "Topic") %>% 
+  gt(groupname_col = "Topic") %>% 
   opt_table_font(font = "Arial") %>%
   tab_header(title = md("**Literature miRNAs from miRetrieve**")) %>%
   fmt_markdown(columns = c(PMIDs)) %>%
@@ -560,21 +591,30 @@ gt(groupname_col = "Topic") %>%
     Accession = "Accession",
     max_value = "Biomarker Score",
     #miRetrieve = "miRetrieve",
-    auc = "AUROC", 
+    #auc = "AUROC", 
+    auc_matched = "AUROC matched",
     PMIDs = "PMID"
   ) %>%
   tab_spanner(
     label = "Performance",
     columns = c(
-      max_value, auc
+      max_value, auc_matched
     )
+  ) %>% 
+  #cols_merge(
+  #  columns = c("auc", "aucs_univariate_lowerci", "aucs_univariate_upperci"),
+  #  pattern = "{1} ({2}; {3})",
+  #) %>% 
+  cols_merge(
+    columns = c("auc_matched", "auc_matched_lci", "auc_matched_uci"),
+    pattern = "{1} ({2}; {3})",
   ) %>% 
   tab_source_note(
     source_note = md("**Biomarker Score** as calculated by *{miRetrieve}*.")
   ) %>% 
   tab_footnote(
     footnote = "AUROC;  area under the receiver operating characteristics curve",
-    locations = cells_column_labels(columns = auc)
+    locations = cells_column_labels(columns = auc_matched)
   ) %>% 
   tab_footnote(
     footnote = "PMID; PubMed Unique Identifier",
@@ -596,7 +636,8 @@ gt(groupname_col = "Topic") %>%
   cols_width(
     TargetName ~ px(100),
     Accession ~ px(100),
-    auc ~ px(100), 
+    #auc ~ px(100), 
+    auc_matched ~ px(100), 
     PMIDs ~ px(150),
     everything() ~ px(50)
   ) %>% 
@@ -608,7 +649,7 @@ gt_literature_miRetrieve
 
 
 gt_literature_miRetrieve %>% 
-  gtsave(glue("{data_path_bestageing2022}/output/tables/literature_miRetrieve/003c_table_miRetrieve_miRNA.docx"))
+  gtsave(glue("{data_path_bestageing2022}/output/tables/literature_miRetrieve/20240125_003c_table_miRetrieve_miRNA.docx"))
 
 
 

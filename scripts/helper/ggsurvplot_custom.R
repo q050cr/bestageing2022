@@ -35,7 +35,7 @@ source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_them
 # custom function
 
 ggsurvplot_custom <- function(fit_object, mytitle="", legend.title, myXbreaks=c(0,1,2,3,4,5), legend.labs, 
-                              plot_inlay=TRUE,
+                              line_colour = thematic::okabe_ito(6), plot_inlay=TRUE,
                               save=TRUE, plotname) {
   ## example: 
   ## legend.title = "ESC HCM Risk-SCD Score" OR ""
@@ -90,7 +90,7 @@ ggsurvplot_custom <- function(fit_object, mytitle="", legend.title, myXbreaks=c(
                     font.y = c(12, "bold", "black")) +
     ## CUSTOM THEME ADDED 2023-30-07
     theme_minimal(base_size = 16, base_family = 'Arial')+
-    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    scale_fill_manual(values = line_colour) +
     my_base_theme()
   
   
@@ -181,8 +181,8 @@ ggsurvplot_custom <- function(fit_object, mytitle="", legend.title, myXbreaks=c(
 # ggsurvplot POSTER IFL ---------------------------------------------------
 
 ggsurvplot_custom_poster <- function(fit_object, mytitle="", legend.title, myXbreaks=c(0,1,2,3,4,5), legend.labs, 
-                              plot_inlay=TRUE,
-                              save=TRUE, plotname, ...) {
+                                     line_colour = c("#0072B2","#009E73", "#E69F00"), plot_inlay=TRUE,
+                                     save=TRUE, plotname, ...) {
   ## example: 
   ## legend.title = "ESC HCM Risk-SCD Score" OR ""
   ## legend.labs = c("Genotype Negative", "Genotype Positive")
@@ -215,7 +215,7 @@ ggsurvplot_custom_poster <- function(fit_object, mytitle="", legend.title, myXbr
                       
                       #break.x.by = 10,  # affects both plot and table
                       # style
-                      palette = c("#0072B2","#009E73", "#E69F00") # thematic::okabe_ito(6)  # Set the colors #E69F00
+                      palette = line_colour # c("#0072B2","#009E73", "#E69F00")  changed ordering of thematic::okabe_ito(6)  # Set the colors #E69F00
                       # "#E69F00" "#009E73" "#0072B2"
                       #ggtheme = ggthemes::theme_few()
   )
@@ -313,4 +313,90 @@ ggsurvplot_custom_poster <- function(fit_object, mytitle="", legend.title, myXbr
   
   return(plot1)
 }
+
+
+
+# ggsurvplot custom paper no labels ---------------------------------------
+
+ggsurvplot_custom_poster_nolabels <- function(fit_object, mytitle="", myXbreaks=c(0,1,2,3,4,5), 
+                                     line_colour = c("#0072B2","#009E73", "#E69F00"), plot_inlay=TRUE,
+                                     save=TRUE, plotname, ...) {
+  ## example: 
+  ## legend.title = "ESC HCM Risk-SCD Score" OR ""
+  ## legend.labs = c("Genotype Negative", "Genotype Positive")
+  
+  ## start with main plot ---------------------------------------
+  plot1 <- ggsurvplot(fit_object, 
+                      conf.int=FALSE, 
+                      pval=FALSE, 
+                      censor=FALSE,  # not wanted by BM
+                      
+                      # risk table
+                      risk.table=FALSE, #xlim=c(0,20),
+                      #risk.table = "abs_pct",
+                      
+                      title=NULL,
+                      
+                      # legend removed here
+                      legend = "none", 
+                      
+                      subtitle ="",
+                      xlab = "", 
+                      ylab = "",
+                      # xlim = c(0, xlimyears),
+                      ylim = c(0.5, 1),
+                      font.x = c(12),
+                      font.y = c(12),
+                      font.tickslab = c(12), 
+                      font.legend = c(12),
+                      
+                      #break.x.by = 10,  # affects both plot and table
+                      # style
+                      palette = line_colour # c("#0072B2","#009E73", "#E69F00")  changed ordering of thematic::okabe_ito(6)  # Set the colors #E69F00
+                      # "#E69F00" "#009E73" "#0072B2"
+                      #ggtheme = ggthemes::theme_few()
+  )
+  # customize further ---------------------------------------
+  plot1$plot$theme$text <- element_text(family = "Arial")
+  plot1$plot <- plot1$plot + 
+    scale_x_continuous(breaks = myXbreaks) #,   labels = c(30,50))
+  plot1$table$theme$plot.title <-  element_text(size = 12, color = "black", face = "bold", hjust = -0.1)
+  plot1$plot <- plot1$plot + 
+    theme_survminer(font.x = c(12, "bold", "black"),
+                    font.y = c(12, "bold", "black")) +
+    ## CUSTOM THEME ADDED 2023-30-07
+    theme_minimal(base_size = 16, base_family = 'Arial')+
+    scale_fill_manual(values = thematic::okabe_ito(6)) +
+    my_base_theme()+
+    theme(legend.position = "none")
+  
+  
+  if (save == TRUE) {
+    #save
+    ## https://github.com/kassambara/survminer/issues/152
+    #filename.p1 <- paste0(data_path_bestageing2022, "/output/plots/survival/", Sys.Date(), "-survival-", plotname, ".png")
+    ## this works on my mac
+    #ggsave(
+    #  filename = filename.p1,
+    #  #plot = print(p1, newpage = FALSE),
+    #  survminer:::.build_ggsurvplot(plot1),
+    #  device = 'png',
+    #  width = 10,
+    #  height = 8
+    #)
+    filename.p1 <- plotname
+    ggsave(
+      filename = filename.p1,
+      #plot = print(p1, newpage = FALSE),
+      survminer:::.build_ggsurvplot(plot1),
+      device = 'svg',
+      width = 4,
+      height = 3
+    )
+  }
+  
+  return(plot1)
+}
+
+
 

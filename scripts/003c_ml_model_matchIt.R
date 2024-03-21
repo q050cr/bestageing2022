@@ -3,11 +3,9 @@
 # this script is sourced from `scripts/render_param_reports.R`
 # selection provided by `all_combis$diseases` and `all_combis$analysis`
 
-# update in 003c_full_analysis script: received detection matrix from hummingbird dx, filtered based on this matrix
-# full analysis with feature selection and model tuning
+# update in 003c script: received detection matrix from hummingbird dx, filtered based on this matrix
 
-# scripts saves tuned models "race_results" (not finalized) to: "./output/tuning_results/"  
-# and a plot "plot_tune_race_ranking" summarizing the performance 
+# scripts saves tuned models (not finalized) to: "./output/tuning_results/"
 
 # Get system name
 system_name <- Sys.info()["nodename"]
@@ -42,6 +40,7 @@ require(stringr, lib.loc = lib_path)
 require(purrr, lib.loc = lib_path)
 require(ggplot2, lib.loc = lib_path)
 require(svglite, lib.loc = lib_path)
+require(MatchIt, lib.loc = lib_path)
 require(ggrepel, lib.loc = lib_path)
 require(ggthemes, lib.loc = lib_path)
 require(skimr, lib.loc = lib_path)
@@ -50,7 +49,6 @@ require(pROC, lib.loc = lib_path)
 require(dials, lib.loc = lib_path)
 require(infer, lib.loc = lib_path)
 require(modeldata, lib.loc = lib_path)
-require(MatchIt, lib.loc = lib_path)
 require(tidymodels, lib.loc = lib_path)
 require(rsample, lib.loc = lib_path)
 options(tidymodels.dark = TRUE)
@@ -84,7 +82,7 @@ tidymodels_prefer()
 conflicted::conflict_prefer("expand", "tidyr")
 conflicted::conflicts_prefer(dplyr::slice)
 conflicted::conflicts_prefer(dplyr::filter)
-conflicted::conflicts_prefer(janitor::make_clean_names)
+
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
@@ -115,7 +113,7 @@ if(length(args) == 0) {
 diseases <- c("dcm", "acs", "cad", "hfref")
 analysis <- c("selected", "full")
 all_combis <- tidyr::crossing(diseases, analysis) %>%   # arranged automatically
-  filter(analysis=="full")
+  filter(analysis=="selected")
 
 # if ( !exists("all_combis")  ) {  # check if variable name exists
 #   diseases <- c("dcm", "acs", "cad", "hfref")
@@ -312,13 +310,12 @@ for (i in 1:nrow(all_combis)) {
     #        file = glue("/mnt/users/reich/rockerprojects/bestageing2022/data-literature/miRetrieve/{all_combis$diseases[i]}/{Sys.Date()}-human-disease_biomarker_with_accession_max_value.rds"))
   }
   
-  # FULL ANALYSIS HERE
+  # select cardiovascular miRNAs
+  data01 <- data01 %>% 
+    select(pat_id, disease, age, sex, human_disease_biomarker$TargetName)
   
-  # data01 <- data01 %>% 
-  #   select(pat_id, disease, age, sex, human_disease_biomarker$TargetName)
+  no.mirnas <- length(human_disease_biomarker$TargetName)
   
-  # no.mirnas <- length(human_disease_biomarker$TargetName)
-  no.mirnas <- ncol(data01) -4
   text_disease <- stringr::str_to_upper(all_combis$diseases[i])
   
   ###
@@ -340,12 +337,10 @@ for (i in 1:nrow(all_combis)) {
   summary(m.out)
   
   # plot(m.out, type = "jitter")
-  modeldat <- match.data(m.out) %>% select(-c("distance", "weights", "subclass"))
-  
-  #ggplot(data=modeldat, mapping = aes(x=disease, y=age))+
-  #  geom_boxplot()
+  modeldat <- match.data(m.out) %>% select(-c("distance",        "weights",         "subclass"))
   
   
+  # CONTINUE ----------------------------
   # make control first factor for all analyses ;)
   modeldat <- modeldat %>% 
     mutate(disease = factor(disease, levels = c("control", all_combis$diseases[i])))
@@ -360,7 +355,7 @@ for (i in 1:nrow(all_combis)) {
   # recipe -------------------------------------------------
   # A
   
-  n_feature_select <- 20  # how many mirna select in training?
+  n_feature_select <- ncol(dat_train) - 10  # for XGB and RF here mtry (pat_id, disease spared out, and not max mtry)
   normalized_rec <- 
     recipe(disease ~ ., data = dat_train) %>%
     ### https://recipes.tidymodels.org/articles/Ordering.html
@@ -376,8 +371,9 @@ for (i in 1:nrow(all_combis)) {
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
     step_YeoJohnson() %>% 
     step_normalize(all_numeric_predictors()) %>%  
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+  # feature selected a priori
+  #step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   # B
   poly_rec <- 
     recipe(disease ~ ., data = dat_train) %>%
@@ -388,8 +384,8 @@ for (i in 1:nrow(all_combis)) {
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
     step_normalize(all_numeric_predictors()) %>%  
     step_poly(all_numeric_predictors()) %>% 
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(starts_with("age"), starts_with("sex")), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+  #step_select_forests(all_predictors(), -c(starts_with("age"), starts_with("sex")), outcome = "disease", top_p = n_feature_select)
   #step_interact( ~all_predictors():all_predictors())
   
   # C
@@ -403,15 +399,15 @@ for (i in 1:nrow(all_combis)) {
     step_impute_mode(all_nominal_predictors(), -disease) %>% 
     # DECORRELATE
     step_corr(all_numeric_predictors(), threshold = 0.9) %>% 
-    step_dummy(all_nominal_predictors(),-disease) %>% 
-    step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
+    step_dummy(all_nominal_predictors(),-disease) #%>% 
+  #step_select_forests(all_predictors(), -c(age, sex_Male), outcome = "disease", top_p = n_feature_select)
   
-  # SANITY CHECK! takes a while with a lot of features in full analysis
-  # prepped_rec <- prep(normalized_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
-  # test_baked_train <- bake(prepped_rec, new_data = dat_train)
-  
-  # prepped_rec <- prep(poly_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
-  # test_baked_train <- bake(prepped_rec, new_data = dat_train)
+  ## sanity check
+  #prepped_rec <- prep(normalized_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
+  #test_baked_train <- bake(prepped_rec, new_data = dat_train)
+  #
+  #prepped_rec <- prep(poly_rec, dat_train, strings_as_factors = FALSE)  # https://community.rstudio.com/t/how-to-specify-a-column-to-be-unaffected-in-recipes/23056/6
+  #test_baked_train <- bake(prepped_rec, new_data = dat_train)
   
   
   ###
@@ -538,7 +534,16 @@ for (i in 1:nrow(all_combis)) {
   grid_XGB <- boost_tree_xgboost_spec %>%   # 2 hyperparams
     extract_parameter_set_dials() %>% 
     # data dependent
-    update(mtry = mtry(range = c(1, n_feature_select+2)) ) %>%  # mirnas + age + sex
+    update(
+      mtry = mtry(range = c(1, n_feature_select)),
+      trees = trees(range = c(20, 500)),  # default c(1, 2000)   # CODE: trees() %>% range_get()
+      min_n = min_n(range = c(2, 40)), # default c(2, 40)  control complexity  -> increasing min_child_weight, forces algorithm to create simpler trees
+      stop_iter = stop_iter(range = c(3, 20)), # default c(3, 20)
+      learn_rate = learn_rate(range = c(-1.5, -0.5), trans = log10_trans()),  # default c(-3, -0.5)
+      loss_reduction = loss_reduction(range = c(-3, 1.5), trans = log10_trans()), # Range (transformed scale): [-10, 1.5]
+      sample_size = sample_prop(range = c(0.5, 1)), # default c(0.1, 1)
+      stop_iter = stop_iter(range = c(3, 30))  # default c(3, 20)
+    ) %>%  # mirnas + age + sex
     grid_latin_hypercube(size=grid_size) 
   
   
@@ -578,12 +583,12 @@ for (i in 1:nrow(all_combis)) {
     option_add(grid = grid_SVM_linear, id = "SVM_linear") %>% 
     option_add(grid = grid_neural_network, id = "neural_network") %>% 
     option_add(grid = grid_full_quad_logistic_reg, id = "full_quad_logistic_reg") %>% 
-    option_add(grid = grid_KNN, id = "full_quad_KNN")  %>%  # same hyperparams
+    option_add(grid = grid_KNN, id = "full_quad_KNN") %>%    # same hyperparams
     # added
     option_add(grid = grid_full_quad_logistic_reg, id = "logistic_reg_simple") %>%   # same hyperparams
     option_add(grid = grid_full_quad_logistic_reg, id = "logistic_reg_norm")
   
-  #all_workflows <- all_workflows %>% slice(8:9)
+  # all_workflows <- all_workflows %>% slice(1:2)
   
   # # debug
   # all_workflows <- all_workflows %>% 
@@ -596,7 +601,7 @@ for (i in 1:nrow(all_combis)) {
   set.seed(123)
   race_ctrl <-
     control_race(
-      verbose = TRUE,
+      verbose = FALSE,
       verbose_elim = FALSE,
       allow_par = TRUE,
       save_pred = TRUE,
@@ -630,7 +635,7 @@ for (i in 1:nrow(all_combis)) {
   
   ## SAVE RACE RESULTS -----------------------------------------
   if(SAVE.files == TRUE) {
-    filename_tune_race_results <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_results_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_randomMIR_{random_selection}_more_logit_matchIt.rds")
+    filename_tune_race_results <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_20240122_tune_race_results_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}_more_logit_matchIt.rds")
     saveRDS(object = race_results, file = filename_tune_race_results)
   }
   
@@ -672,14 +677,14 @@ for (i in 1:nrow(all_combis)) {
     my_base_theme() +
     theme(legend.position = "none") -> plot_tune_race_ranking
   
-  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_full_analysis_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_randomMIR_{random_selection}_more_logit_matchIt.svg")
+  filename_plot_tune_race_ranking <- glue("{data_path_bestageing2022}/output/tuning_results/{all_combis$diseases[i]}/003c_20240122_tune_race_ranking_repeats_{no_repeats}_folds_{no_folds}_{text_disease}_analysis_{str_to_upper(all_combis$analysis[i])}_miRetrieve_{miRetrieveBiomarker}_randomMIR_{random_selection}_more_logit_matchIt.svg")
   ggsave(filename = filename_plot_tune_race_ranking, plot = plot_tune_race_ranking, 
          width = 14, height = 10, 
          units = "in"  # default
   )
   
   
-  print(paste0("|||-----------------------Run finished for disease: ", stringr::str_to_upper(all_combis$diseases[i]), 
+  print(paste0("|||-----------------------Run finished for disease and matchIt: ", stringr::str_to_upper(all_combis$diseases[i]), 
                ", and selection of miRNAs: ", stringr::str_to_upper(all_combis$analysis[i]),
                " -----------------------|||") )
 } # END LOOP
