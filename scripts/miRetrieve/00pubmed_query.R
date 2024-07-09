@@ -29,6 +29,7 @@ library(dplyr, lib.loc = lib_path)
 library(tidyr, lib.loc = lib_path)
 library(ggplot2, lib.loc = lib_path)
 library(ggpubr, lib.loc = lib_path)
+library(glue, lib.loc = lib_path)
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
@@ -107,6 +108,38 @@ AND ("Cardiovascular Diseases"[Mesh] OR "Cardiovascular Diseases"[Title/Abstract
   my_base_theme() -> paper.count.plot1
 paper.count.plot1
 
+
+# calc cumulative sum of papers
+paper_count_df <- paper_count_df %>% 
+  filter(year >= 2000 & year <= 2022) %>% 
+  arrange(year) %>% 
+  mutate(cumulative_papers = cumsum(papers))
+
+paper_count_df_copy <- paper_count_df
+
+paper_count_plot1_cumulative <- ggplot(mapping=aes(x=year, y=cumulative_papers), data = paper_count_df %>% filter(year>=2005 & year <=2022))+
+  # geom_point(alpha =0.3)+
+  geom_line(linewidth=1)+
+  #geom_smooth(method="auto", se=FALSE, fullrange=FALSE, level=0.95) +  # plot smoothing line
+  labs(title = "The Rise of Cardiovascular miRNA Research",
+       #subtitle = subtitle.custom,
+       #caption = '("MicroRNAs"[Mesh] OR "miRNAs"[Mesh] OR "microRNA"[Title/Abstract] OR "miRNA"[Title/Abstract])\nAND ("Cardiovascular Diseases"[Mesh] OR "Cardiovascular Diseases"[Title/Abstract] OR\"Heart Diseases"[Mesh] OR "Heart Diseases"[Title/Abstract]) AND 2000:2022[DP]'
+       ) +
+  scale_x_continuous(name = NULL,  
+                     #labels = comma, 
+                     breaks = year_annotation, #c( 10000, n[7:length(n)]),
+                     #limits = c(10000, 300000)
+  )+
+  ylab("Cumulative count\nof papers")+
+  theme_minimal(base_size = 16, base_family = 'Arial') +
+  labs(title = NULL) +  # update title to be NULL
+  scale_fill_manual(values = ggthemes::gdocs_pal()(6)) +
+  scale_colour_manual(values = ggthemes::gdocs_pal()(6)) +
+  my_base_theme()
+paper_count_plot1_cumulative
+
+
+# for distinct phenotypes---------------------------
 paper_count_df_diseases <- tibble(year = year)
 for (my_disease_query in 1:nrow(query_loop_df)){
   papers <- sapply(year, search_year, term=query_loop_df$query[my_disease_query] , USE.NAMES=FALSE)
@@ -136,20 +169,55 @@ paper_count_df_diseases1 %>%
   my_base_theme() -> paper.count.plot2
 paper.count.plot2
 
-advanced.counting.plot <- ggarrange(paper.count.plot1, paper.count.plot2,
+# calc cumulative sum of papers
+## first calc cum sum for each disease category
+paper_count_df_diseases_cumulative <- paper_count_df_diseases %>% 
+  mutate(across(starts_with("papers_"), cumsum))
+
+## pivot long format
+long_df_diseases <- paper_count_df_diseases_cumulative %>% 
+  pivot_longer(cols=starts_with("papers_"), names_to = "Disease", values_to = "CumulativePapers") %>% 
+  mutate(Disease = sub("papers_", "", Disease))
+
+paper.count.plot2_cumulative <- long_df_diseases %>% 
+  mutate(Disease = factor(Disease, labels = c("ACS", "CAD", "DCM", "HF"))) %>% 
+  filter(year>=2005 & year <=2022) %>% 
+  # plot
+  ggplot(mapping=aes(x=year, y=CumulativePapers, color=Disease)) +
+  geom_line(linewidth=1) +
+  labs(#title = "Papers published in distinct phenotypes",
+    subtitle = NULL,  #"Papers published in Distinct Phenotypes"
+    color = NULL
+  ) +
+  xlab("Year")+
+  ylab("Cumulative count\nof papers")+
+  theme_minimal(base_size = 16, base_family = 'Arial') +
+  scale_fill_manual(values = ggthemes::gdocs_pal()(6)) +
+  scale_colour_manual(values = ggthemes::gdocs_pal()(6)) +
+  my_base_theme()+
+  theme(legend.position = "bottom")
+paper.count.plot2_cumulative
+
+ggsave(filename = glue("{data_path_bestageing2022}/output/pubmed/paper_counting_plot_disease_cum.svg"), plot = paper.count.plot2_cumulative,
+       width = 6, 
+       height = 5)
+
+## arrange 2 plots
+advanced.counting.plot <- ggarrange(paper_count_plot1_cumulative, paper.count.plot2_cumulative,
                   ncol=1, nrow=2, 
                   #heights = c(2, 1.5, 1.5),
-                  legend = "bottom", common.legend = TRUE, align = "hv"
+                  legend = "bottom" #, #common.legend = TRUE, 
+                  #align = "hv" #, labels = c("A", "B")
 )
 advanced.counting.plot
 
-saveRDS(advanced.counting.plot, file = "./output/pubmed/paper_counting_plot.rds")
+saveRDS(advanced.counting.plot, file = "./output/pubmed/paper_counting_plot_cum.rds")
 # advanced.counting.plot <- readRDS("./output/pubmed/paper_counting_plot.rds")
 
-ggsave(filename = glue("{data_path_bestageing2022}/output/pubmed/{Sys.Date()}_paper_counting_plot.svg"), plot = advanced.counting.plot,
-       width = 10, 
-       height = 10)
-  
+ggsave(filename = glue("{data_path_bestageing2022}/output/pubmed/paper_counting_plot_cum.svg"), plot = advanced.counting.plot,
+       width = 6, 
+       height = 5)
+
 # ### using {pubmedR}
 # # https://cran.r-project.org/web/packages/pubmedR/vignettes/A_Brief_Example.html 
 # 
