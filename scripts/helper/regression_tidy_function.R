@@ -349,7 +349,7 @@ process_model <- function(results, trait, model_idx) {
     residual_plot = residual_plot_traintest,
     qq_plot = create_qq_plot(plot_data_traintest)
   )
-  
+  rm(bootstraps_traintest, bootstraps_train)
   return(model_results)
 }
 
