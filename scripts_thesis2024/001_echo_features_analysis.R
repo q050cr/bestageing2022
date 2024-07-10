@@ -1062,14 +1062,13 @@ for (trait in echo_traits) {
   for (model_idx in 1:nrow(results$race_results)) {
     wflow_id <- results$race_results[[1]][model_idx]
     cat("Processing wflow_id:", wflow_id, "for trait:", trait, "\n")
-    # fns in "regression_tidy_function.R"
+    # process_model()   fns in "regression_tidy_function.R"
     results_list[[trait]][[wflow_id]] <- process_model(results, trait, model_idx)
   }
 }
 
 # results_list
-
-saveRDS(results_list, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/vip_results/vip_results_list.rds"))
+# saveRDS(results_list, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/evaluation/results_list.rds"))
 
 
 ### look at results -----------
@@ -1100,6 +1099,9 @@ performance_measures_combined <- lapply(names(results_list), function(trait) {
 performance_measures_combined |> 
   filter(.metric=="rsq", model=="normalized_LM") |> 
   print(n=100)
+
+saveRDS(performance_measures_combined, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/performance_measures/performance_measures.rds"))
+
   
 ## VIP ---------
 
@@ -1120,7 +1122,7 @@ for (trait in echo_traits) {
   }
 }
 
-saveRDS(vip_results_list, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/vip_results/vip_results_list.rds"))
+# saveRDS(vip_results_list, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/vip_results/vip_results_list.rds"))
 
 
 
