@@ -1189,6 +1189,7 @@ df_de_mirna_topic <- tibble(
 
 
 volcano_list <- list()
+volcano_list_thesis <- list()
 
 for(mydisease in 1:nrow(all_combis)) {
   # de.results_old <- readRDS(dplyr::last(list.files(path = "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022/output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
@@ -1320,7 +1321,11 @@ for(mydisease in 1:nrow(all_combis)) {
     my_base_theme() -> volcano_1
   print(volcano_1)
   
+  volcano_1_thesis <- volcano_1 +
+    scale_color_manual(values = c("#3366cc", "#dc3912", "black"), name="Differentially expressed")
+  
   volcano_list[[mydisease]] <- volcano_1
+  volcano_list_thesis[[mydisease]] <- volcano_1_thesis
   
   if (SAVE.files ==TRUE ){
     filename.volcano <- glue("{data_path_bestageing2022}/output/plots/de_analysis/{all_combis$diseases[mydisease]}/20240126_001c_de_volcano_only_disease_specific_literature_mirnas.svg")
@@ -1441,7 +1446,22 @@ if (SAVE.files ==TRUE ){
   )
 }
 
+# thesis plot
+# Combine plots into a single row
+combined_volcano_row <- (volcano_list_thesis[[1]] + volcano_list_thesis[[2]] + 
+                           volcano_list_thesis[[3]] + volcano_list_thesis[[4]]) & 
+  theme(legend.position = "bottom")
 
+# Layout configuration
+combined_volcano_layout_row <- combined_volcano_row + 
+  plot_layout(ncol = 4, guides = "collect") # No need for nrow since it's 1 by default
+
+# Print the combined plot
+combined_volcano_layout_row
+ggsave(filename = glue("{data_path_bestageing2022}/output/analysis2024/de_analysis/20240710_001c_de_volcano_only_disease_specific_literature_mirnas_combined_row.svg"), plot = combined_volcano_layout_row, 
+       width = 14, height = 4, 
+       units = "in"  # default
+)
 
 
 # VOLCANO MATCHED ---------------------------------------------------------
