@@ -8,6 +8,7 @@ require(forcats)
 require(janitor)
 require(readxl)
 require(glue)
+require(gt)
 require(RColorBrewer)
 require(ggthemes)
 require(limma)
@@ -508,7 +509,7 @@ analysis_dat_ukhd2024_merged <- analysis_dat_ukhd2024_merged %>%
 # Define the number of top features to display
 m <- 20
 
-# CORRELATION ANALYSIS --------------------------------------------
+# 1)a) CORRELATION ANALYSIS --------------------------------------------
 calculate_correlations <- function(traits, miRNAs, data) {
   cor_results <- data.frame(Trait = character(), miRNA = character(), Correlation = numeric(), 
                             P_Value = numeric(), Conf_Lower = numeric(), Conf_Upper = numeric(), 
@@ -571,6 +572,8 @@ print(top_echo_features)
 # Display the top features for lab traits
 print(top_lab_features)
 
+saveRDS(echo_cor_results,  file = glue("{data_path_bestageing2022}/output/analysis2024/correlation_univar/echo_cor_results.rds") )
+saveRDS(lab_cor_results,  file = glue("{data_path_bestageing2022}/output/analysis2024/correlation_univar/lab_cor_results.rds") )
 
 
 ### Dotplot with errorbars | Correlations -------------------------------------
@@ -578,11 +581,11 @@ print(top_lab_features)
 palette <- ggthemes::gdocs_pal()(10)
 
 trait_name_mapping <- c(
-  "Aortenwurzel" = "Aortenwurzel",
-  "Linker_Vorhof" = "Linker Vorhof",
-  "max_wall_thickness" = "Max Wall Thickness",
-  "LV_EDD" = "LV EDD",
-  "LV_EF" = "LV EF",
+  "Aortenwurzel" = "AR",
+  "Linker_Vorhof" = "LA",
+  "max_wall_thickness" = "MWT",
+  "LV_EDD" = "LVEDD",
+  "LV_EF" = "LVEF",
   "RV" = "RV",
   "sPA" = "sPA",
   "SV_Funktion_EE_Ruhe" = "E/E'-Ratio",
@@ -669,11 +672,51 @@ ggsave(filename = echo_cor_feature_plot, plot = echo_plot,
        width = 18, height = 15, 
        units = "in"  # default
 )
+
 lab_cor_feature_plot <- glue("{data_path_bestageing2022}/output/analysis2024/correlation_features/001_lab_cor_feature.svg")
 ggsave(filename = lab_cor_feature_plot, plot = lab_plot, 
        width = 18, height = 15, 
        units = "in"  # default
 )
+
+
+### gt table ---------------------
+# table with how m1 features
+m1 <- 10
+# Modify data frame for gt table
+top_echo_features_ordered_gt <- top_echo_features_ordered %>%
+  group_by(Trait) %>%
+  arrange(Adjusted_P_Value) %>%
+  slice_head(n = m1) %>%
+  ungroup() |> 
+  mutate(
+    Correlation = sprintf("%.3f [%0.3f; %0.3f]", Correlation, Conf_Lower, Conf_Upper),
+    P_Value = ifelse(P_Value<0.001, "<0.001", sprintf("%.3f", P_Value)),
+    Adjusted_P_Value = ifelse(Adjusted_P_Value<0.001, "<0.001", sprintf("%.3f", Adjusted_P_Value)),
+    Adjusted_P_Value = glue("{Adjusted_P_Value}{Significance}")
+  ) %>%
+  select(-Conf_Lower, -Conf_Upper, -Trait, -Sample_Size, -Significance)  # Remove now combined columns
+
+# Create the gt table
+gt_table <- top_echo_features_ordered_gt %>%
+  gt(groupname_col = "New_Trait") %>%
+  cols_label(
+    #Trait = "Trait",
+    miRNA = "miRNA",
+    Correlation = "Correlation Coefficient",
+    P_Value = "Raw P-Value",
+    #Sample_Size = "Sample Size",
+    Adjusted_P_Value = "Adjusted P-Value",
+    #Significance = "Significance"
+  ) %>%
+  fmt_number(decimals =3) |> 
+  tab_stubhead(label = "New Trait")  # Setting the stubhead label
+
+# Print the table
+print(gt_table)
+
+gt_table %>% 
+  gtsave( glue("{data_path_bestageing2022}/output/analysis2024/correlation_features/top_echo_features_ordered_gt.docx")) 
 
 ###
 ## Volcano plot adaption ----------------------
@@ -799,7 +842,7 @@ ggsave(filename = heatmap_cor_traits, plot = heatmap_cor_coefficient_traits,
 
 
 ###
-# Univariable REGRESSION Analysis-------------------------------------------------------------------------
+# 1)b) Univariable REGRESSION Analysis-------------------------------------------------------------------------
 ### 
 
 # Function to calculate regression coefficients and prepare results
@@ -858,6 +901,16 @@ calculate_regressions <- function(traits, miRNAs, data) {
 echo_reg_results <- calculate_regressions(echo_traits, miRNAs, analysis_dat_ukhd2024_merged)
 lab_reg_results <- calculate_regressions(lab_traits, miRNAs, analysis_dat_ukhd2024_merged)
 
+saveRDS(echo_reg_results,  file = glue("{data_path_bestageing2022}/output/analysis2024/regression_univar/echo_reg_results.rds") )
+saveRDS(lab_reg_results,  file = glue("{data_path_bestageing2022}/output/analysis2024/regression_univar/lab_reg_results.rds") )
+
+echo_reg_results <- readRDS(file = glue("{data_path_bestageing2022}/output/analysis2024/regression_univar/echo_reg_results.rds") )
+lab_reg_results <- readRDS(file = glue("{data_path_bestageing2022}/output/analysis2024/regression_univar/lab_reg_results.rds") )
+
+# get NEW TRAIT name for plots
+echo_reg_results <- echo_reg_results %>%
+  left_join(sample_sizes_echo %>% select(Trait, New_Trait), by = "Trait") |> 
+  mutate(Trait=New_Trait)
 
 ## Volcano plot facet wrap ----------------------------------------------------
 
@@ -867,20 +920,21 @@ create_volcano_plot <- function(reg_results, title) {
     mutate(Significant = ifelse(Adjusted_P_Value < 0.05, "Significant", "Not Significant"))
   
   plot <- ggplot(reg_results, aes(x = Regression_Coefficient, y = -log10(Adjusted_P_Value))) +
-    geom_point(aes(color = Significant), alpha = 0.7) +
+    geom_point(aes(color = Significant), alpha = 0.7, shape=16) +
     scale_color_manual(values = c("Significant" = "#dc3912", "Not Significant" = "grey")) +
     geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") +
     labs(x = "Regression Coefficient", y = "-log10 Adjusted P-Value", title = title) +
     theme_minimal(base_size = 16, base_family = 'Arial') +
     theme(legend.title = element_blank(), legend.position = "none") +
-    facet_wrap(~ Trait, scales = "free") #+
+    facet_wrap(~ Trait, scales = "free", nrow=2) #+
     #geom_text_repel(aes(label = ifelse(Adjusted_P_Value < 0.05, miRNA, '')), size = 3)
   
   return(plot)
 }
 
+
 # Example for echo traits
-echo_volcano_plot <- create_volcano_plot(echo_reg_results, "")
+echo_volcano_plot <- create_volcano_plot(echo_reg_results, title = "")
 print(echo_volcano_plot)
 
 # Example for lab traits
@@ -888,9 +942,9 @@ lab_volcano_plot <- create_volcano_plot(lab_reg_results, "")
 print(lab_volcano_plot)
 
 
-volcano_regression_echo_facet <- glue("{data_path_bestageing2022}/output/analysis2024/correlation_features/001_volcano_facet_regression_echo.svg")
+volcano_regression_echo_facet <- glue("{data_path_bestageing2022}/output/analysis2024/regression_univar/001_volcano_facet_regression_echo.svg")
 ggsave(filename = volcano_regression_echo_facet, plot = echo_volcano_plot, 
-       width = 8, height = 8, 
+       width = 10, height = 6, 
        units = "in"  # default
 )
 
@@ -945,8 +999,81 @@ ggsave(filename = dotplot_regression_traits, plot = dot_plot_regression,
 )
 
 
+
+### gt table combine cor coefficient + lr coefficient---------------------
+
+
+# Function to prepare data for ordered plotting
+prepare_plot_data_reg <- function(reg_results) {
+  reg_results %>%
+    mutate(miRNA = convert_mir_name_V(miRNA)) %>%
+    group_by(Trait) %>%
+    arrange(Adjusted_P_Value) %>%
+    mutate(miRNA = factor(miRNA, levels = unique(miRNA))) %>%
+    ungroup() 
+}
+
+top_echo_features_ordered_reg <- prepare_plot_data_reg(echo_reg_results)
+top_echo_features_ordered_reg <- top_echo_features_ordered_reg |> 
+  rename(Conf_Lower_Reg = Conf_Lower,
+         Conf_Upper_Reg = Conf_Upper, 
+         P_Value_Reg = P_Value, 
+         Adjusted_P_Value_Reg = Adjusted_P_Value,
+         Significance_Reg = Significance)
+# table with how m1 features
+m1 <- 10
+# Modify data frame for gt table
+top_echo_features_ordered_gt_cor_reg <- top_echo_features_ordered %>%
+  left_join(top_echo_features_ordered_reg |> select(miRNA, New_Trait, Regression_Coefficient, Conf_Lower_Reg, Conf_Upper_Reg, P_Value_Reg, Adjusted_P_Value_Reg , Significance_Reg), 
+            by=c("miRNA"="miRNA", "New_Trait"="New_Trait") ) |> 
+  group_by(Trait) %>%
+  arrange(Adjusted_P_Value) %>%
+  slice_head(n = m1) %>%
+  ungroup() |> 
+  # prepare cor cols
+  mutate(
+    Correlation = sprintf("%.3f [%0.3f; %0.3f]", Correlation, Conf_Lower, Conf_Upper),
+    P_Value = ifelse(P_Value<0.001, "<0.001", sprintf("%.3f", P_Value)),
+    Adjusted_P_Value = ifelse(Adjusted_P_Value<0.001, "<0.001", sprintf("%.3f", Adjusted_P_Value)),
+    Adjusted_P_Value = glue("{Adjusted_P_Value}{Significance}")
+  ) %>%
+  # prepare reg cols
+  mutate(
+    Regression_Coefficient = sprintf("%.3f [%0.3f; %0.3f]", Regression_Coefficient, Conf_Lower_Reg, Conf_Upper_Reg),
+    P_Value_Reg = ifelse(P_Value_Reg<0.001, "<0.001", sprintf("%.3f", P_Value_Reg)),
+    Adjusted_P_Value_Reg = ifelse(Adjusted_P_Value_Reg<0.001, "<0.001", sprintf("%.3f", Adjusted_P_Value_Reg)),
+    Adjusted_P_Value_Reg = glue("{Adjusted_P_Value_Reg}{Significance_Reg}")
+  ) %>%
+  select(-Conf_Lower, -Conf_Upper, -Trait, -Sample_Size, -Significance,
+         -c(Conf_Lower_Reg, Conf_Upper_Reg,  Significance_Reg))  # Remove now combined columns
+
+# Create the gt table
+gt_table <- top_echo_features_ordered_gt_cor_reg %>%
+  gt(groupname_col = "New_Trait") %>%
+  cols_label(
+    #Trait = "Trait",
+    miRNA = "miRNA",
+    Correlation = "Correlation Coefficient",
+    P_Value = "Raw P-Value",
+    #Sample_Size = "Sample Size",
+    Adjusted_P_Value = "Adjusted P-Value",
+    #Significance = "Significance"
+    Regression_Coefficient = "Regression Coefficient",
+    P_Value_Reg = "Raw P-Value",
+    Adjusted_P_Value_Reg = "Adjusted P-Value"
+  ) %>%
+  fmt_number(decimals =3) |> 
+  tab_stubhead(label = "New Trait")  # Setting the stubhead label
+
+# Print the table
+print(gt_table)
+
+gt_table %>% 
+  gtsave( glue("{data_path_bestageing2022}/output/analysis2024/top_echo_features_ordered_gt_cor_reg.docx")) 
+
+
 ###
-# ML regression analysis -------------------------------------------------------------
+# 2) ML regression analysis -------------------------------------------------------------
 ###
 
 # load helper fn
@@ -1070,6 +1197,7 @@ for (trait in echo_traits) {
 # results_list
 # saveRDS(results_list, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/evaluation/results_list.rds"))
 
+results_list <- readRDS(file = glue("{data_path_bestageing2022}/output/analysis2024/regression/evaluation/results_list.rds"))
 
 ### look at results -----------
 
@@ -1100,9 +1228,18 @@ performance_measures_combined |>
   filter(.metric=="rsq", model=="normalized_LM") |> 
   print(n=100)
 
-saveRDS(performance_measures_combined, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/performance_measures/performance_measures.rds"))
+# saveRDS(performance_measures_combined, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/performance_measures/performance_measures.rds"))
 
-  
+performance_measures_combined <-  readRDS(file = glue("{data_path_bestageing2022}/output/analysis2024/regression/performance_measures/performance_measures.rds"))
+performance_measures_combined
+
+performance_measures_combined |> select(trait) |> table()
+
+performance_measures_combined |> filter(type=="traintest", .metric=="rsq", trait %in% c("LV_EDD", "LV_EF"))
+
+
+performance_measures_combined |> filter(type %in% c("test"), .metric=="rsq", model == "normalized_LM") |> select(.estimate) |> max()
+
 ## VIP ---------
 
 vip_results_list <- list()  # Store results for each trait
@@ -1124,8 +1261,261 @@ for (trait in echo_traits) {
 
 # saveRDS(vip_results_list, file = glue("{data_path_bestageing2022}/output/analysis2024/regression/vip_results/vip_results_list.rds"))
 
+vip_results_list <- readRDS(glue("{data_path_bestageing2022}/output/analysis2024/regression/vip_results/vip_results_list.rds"))
 
 
+## PLOT performance measures ------------------
+
+# Filter the data for traintest only
+traintest_data <- performance_measures_combined %>%
+  filter(type %in% c("traintest", "test")) |> 
+  mutate(trait = rename_traits(trait)) |> 
+  mutate(model = case_when(
+    model == "normalized_LM" ~ "Penalized Linear Regression",
+    model == "normalized_RF" ~ "Random Forest", 
+    .default = model
+  )) |> 
+  mutate(
+    type = case_when(
+      type == "traintest" ~ "All data",
+      type == "test" ~ "Test data", 
+      .default = type
+    )
+  ) |> 
+  mutate(
+    .metric = case_when(
+      .metric == "mae" ~ "MAE",
+      .metric == "rmse" ~ "RMSE", 
+      .metric == "rsq" ~ "RSQ",
+      .default = .metric
+    )
+  )
+
+performance_measure_plot <- ggplot(traintest_data, aes(x = trait, y = .estimate, color = model)) +
+  geom_point(position = position_dodge(width = 0.25)) +  # Dodge points to avoid overlap
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2, position = position_dodge(width = 0.25)) +
+  scale_color_manual(values = ggthemes::gdocs_pal()(4))+ 
+  facet_wrap(~ .metric + type, scales = "free_y", ncol = 2)+  # Separate plots for each metric
+  labs(
+    x = "", # "Trait",
+    y = "Estimate",
+    title = "", # "Train-Test Estimates and Confidence Intervals",
+    subtitle = "", # "Comparing estimates across traits and models"
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank(), legend.position = "bottom") 
+
+performance_measure_plot
+
+ggsave(filename = glue("{data_path_bestageing2022}/output/analysis2024/regression/evaluation/performance_measure_plot.svg"), plot = performance_measure_plot, 
+       width = 8, height = 10, 
+       units = "in"  # default
+)
+
+
+## PLOT Predicted - Actual ---------
+
+results_list$Aortenwurzel$normalized_LM$plots_traintest$prediction_error +
+  theme(plot.title = element_blank()) + theme(text = element_text(family = "sans"))
+
+base_path <- glue("{data_path_bestageing2022}/output/analysis2024/regression/evaluation/prediction_error")
+
+
+traits <- names(results_list)
+
+# Loop through each trait
+for (trait in names(results_list)) {
+  # Loop through each model within the trait
+  for (model in names(results_list[[trait]])) {
+    # Extract the prediction_error plot
+    plot <- results_list[[trait]][[model]]$plots_traintest$prediction_error + 
+      theme(
+        plot.title = element_blank(), 
+    text = element_text(family = "sans")
+      )
+    
+    if (!is.null(plot)) {
+      # Define the file path
+      file_path <- glue("{base_path}/{trait}_{model}_prediction_error.svg")
+      
+      # Define the file path
+      #file_path <- glue("{base_path}/{trait}/{model}/prediction_error.svg")
+      # Check if the directory exists and create it if it does not
+      dir.create(dirname(file_path), recursive = TRUE, showWarnings = FALSE)
+      
+      ggsave(file_path, plot, device = "svg", width = 8, height = 5)
+    } else {
+      warning(glue("Prediction error plot not found for {trait} in model {model}"))
+    }
+  }
+}
+
+
+## PLOT VIP ---------
+
+vip_results_list$Aortenwurzel$normalized_LM$plot_bootstrapped_vip
+base_path_vip <- glue("{data_path_bestageing2022}/output/analysis2024/regression/vip_results")
+
+
+for (trait in names(results_list)) {
+  # Loop through each model within the trait
+  for (model in names(results_list[[trait]])) {
+    # Extract the prediction_error plot
+    plot <- vip_results_list[[trait]][[model]]$plot_bootstrapped_vip + 
+      theme(
+        plot.title = element_blank(), 
+        text = element_text(family = "sans")
+      )
+    
+    if (!is.null(plot)) {
+      # Define the file path
+      file_path <- glue("{base_path_vip}/{trait}_{model}_vip.svg")
+      
+      # Define the file path
+      #file_path <- glue("{base_path_vip}/{trait}/{model}/prediction_error.svg")
+      # Check if the directory exists and create it if it does not
+      dir.create(dirname(file_path), recursive = TRUE, showWarnings = FALSE)
+      
+      ggsave(file_path, plot, device = "svg", width = 8, height = 5)
+    } else {
+      warning(glue("Prediction error plot not found for {trait} in model {model}"))
+    }
+  }
+}
+
+
+## TABLE VIP -----------------
+# get miRNAs to highlight in vip table
+table_mirna_top50bm_score_alldiseases <- readRDS(file = glue("{data_path_bestageing2022}/data-literature/miRetrieve/20240125top50mirnas_all_diseases_pmids_gpt.rds"))
+
+literature_mirnas <- table_mirna_top50bm_score_alldiseases |> 
+  mutate(TargetName = convert_mir_name_V(TargetName)) |> 
+  distinct(TargetName) |> 
+  pull()
+
+wider_data |> 
+  filter(Feature %in% literature_mirnas)
+
+
+#sophisticated
+mirna_disease_mapping <- table_mirna_top50bm_score_alldiseases %>%
+  group_by(TargetName) %>%
+  summarize(Topics = list(unique(Topic)), .groups = 'drop') %>%
+  mutate(row_id = row_number()) %>%
+  unnest(Topics) %>%
+  pivot_wider(names_from = Topics, values_from = Topics, values_fill = list(Topics = FALSE), values_fn = list(Topics = function(x) TRUE)) %>%
+  select(-row_id)
+mirna_disease_mapping
+
+# easy
+mirna_disease_mapping1 <- table_mirna_top50bm_score_alldiseases %>%
+  mutate(Topic = ifelse(Topic == "HFrEF", "ICM", Topic)) |> 
+  group_by(TargetName) %>%
+  summarize(Topics = paste(unique(Topic), collapse = ", "), .groups = 'drop') |> 
+  mutate(TargetName = convert_mir_name_V(TargetName))
+mirna_disease_mapping1
+
+
+combined_importance <- data.frame()
+
+# Loop through each trait in the results list
+for (trait in names(vip_results_list)) {
+  # Loop through each model within the trait
+  for (model in names(vip_results_list[[trait]])) {
+    # Extract the bootstrapped importance results
+    importance_data <- vip_results_list[[trait]][[model]]$results_bootstrapped_importance
+    
+    # Check if the data exists
+    if (!is.null(importance_data)) {
+      # Add columns for trait and model if not already present
+      importance_data$Trait <- trait
+      importance_data$Model <- model
+      
+      # Bind this dataframe to the combined dataframe
+      combined_importance <- bind_rows(combined_importance, importance_data)
+    } else {
+      warning(glue("Bootstrapped importance results not found for {trait} in model {model}"))
+    }
+  }
+}
+
+# Check the combined dataframe
+combined_importance <- combined_importance |> 
+  as_tibble() |> 
+  mutate(Trait = rename_traits(Trait)) |> 
+  mutate(Model = case_when(
+    Model == "normalized_LM" ~ "Penalized Linear Regression",
+    Model == "normalized_RF" ~ "Random Forest", 
+    .default = Model
+  )) |> 
+  mutate(Feature = convert_mir_name_V(Feature)) |> 
+  # add literature mirnas
+  left_join(mirna_disease_mapping1, by=c("Feature" = "TargetName"))
+
+
+# Modify data frame for gt table
+m2 <- 10
+combined_importance_gt <- combined_importance %>%
+  group_by(Trait, Model) %>%
+  arrange(desc(MeanImportance)) %>%
+  slice_head(n = m2) %>%
+  ungroup() |> 
+  # prepare cor cols
+  mutate(
+    MeanImportance = sprintf("%.3f [%0.3f; %0.3f]", MeanImportance, Low, High)
+  ) %>%
+  select(-Low, -High)  # Remove now combined columns
+
+# Create the gt table
+gt_table_rf <- combined_importance_gt %>%
+  filter(Model == "Random Forest") |> 
+  group_by(Trait) %>%
+  arrange(Trait, desc(MeanImportance)) %>%
+  # slice_head(n = m1) %>%
+  ungroup() |> 
+  gt(groupname_col = c("Trait", "Model")) %>%
+  cols_label(
+    MeanImportance = "Mean Importance (95% CI)",
+  ) %>%
+  fmt_number(decimals =3) |> 
+  tab_stubhead(label = "Trait")  # Setting the stubhead label
+gt_table_rf
+
+
+
+### combine models for gt tables  ------------
+wider_data <- combined_importance_gt %>%
+  pivot_wider(
+    names_from = Model,  # Create new columns from the 'Model'
+    values_from = MeanImportance,  # Fill these new columns with values from 'MeanImportance'
+    names_prefix = "Importance_"  # Prefix to add to new column names for clarity
+  ) %>%
+  arrange(Trait, Feature)  # Optional: Arrange by 'Trait' and 'Feature' for better readability
+
+# View the transformed data
+print(wider_data)
+
+gt_table <- wider_data %>%
+  gt(groupname_col = "Trait") %>%
+  cols_label(
+    `Importance_Penalized Linear Regression` = "PLR Mean Importance",
+    `Importance_Random Forest` = "RF Importance"
+  ) %>%
+  fmt_missing(columns = everything(), missing_text = "") %>%
+  tab_stubhead(label = "Feature") %>%
+  tab_options(
+    table.font.size = px(12),
+    heading.title.font.size = px(16)
+  ) # %>%
+  #tab_header(
+  #  title = "Comparative Importance of Features across Models",
+  #  subtitle = "This table compares the mean importance of features for different regression models"
+  #)
+gt_table
+
+
+gt_table %>% 
+  gtsave( glue("{data_path_bestageing2022}/output/analysis2024/regression/vip_results/vip_results.docx")) 
 
 
 

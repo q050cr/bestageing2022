@@ -2,6 +2,8 @@
 
 library(ggplot2)
 library(emojifont)
+library(waffle)
+library(ggwaffle)
 
 
 
@@ -25,7 +27,7 @@ data <- data.frame(
 
 # Define colors for each group
 group_colors <- c("#E69F00", "#009E73", "#0072B2", "#CC79A7")
-
+group_colors <- ggthemes::gdocs_pal()(4)
 pie_chart <- ggplot(data, aes(x = "", y = Patients, fill = Group)) +
   geom_bar(stat = "identity", width = 1) +
   coord_polar(theta = "y") + 
@@ -53,7 +55,7 @@ ggsave("pie_chart.svg", pie_chart, width = 4, height = 4)
 library(waffle)
 
 parts <- setNames(data$Patients / 10, data$Group)
-waffle_chart <- waffle(parts, rows = 10, size = 0.5, colors = c("#E69F00", "#009E73", "#0072B2", "#CC79A7"))
+waffle_chart <- waffle(parts, rows = 10, size = 0.5, colors = ggthemes::gdocs_pal()(4))
 waffle_chart <- waffle_chart +
   theme_void(base_size = 16, base_family = 'Arial') +# no x,y axis labels  
   theme(legend.position = "bottom",      # Moves legend to the bottom
