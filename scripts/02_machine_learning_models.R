@@ -1,7 +1,6 @@
 # Machine Learning Model Training and Evaluation
 #
 # This script trains and evaluates ML models on miRNA data
-# Author: Christoph Reich
 # Date: 2025-05-20 (updated)
 
 # ----- Setup -----

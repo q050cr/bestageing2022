@@ -1,8 +1,7 @@
 # Survival Analysis Using miRNA Expression
 #
 # This script performs survival analysis on miRNA data
-# Author: Christoph Reich
-# Date: 2024-04-20 (updated)
+# Date: 2025-05-20 (updated)
 
 # ----- Setup -----
 # Load configuration and utilities
