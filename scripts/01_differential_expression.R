@@ -1,7 +1,6 @@
 # Differential miRNA Expression Analysis
 #
 # This script performs differential expression analysis on miRNA data
-# Author: Christoph Reich
 # Date: 2025-05-20 (updated)
 
 # ----- Setup -----
