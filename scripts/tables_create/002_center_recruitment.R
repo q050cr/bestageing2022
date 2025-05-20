@@ -143,4 +143,27 @@ center_statistics
 
 write.csv2(center_statistics, file = glue("{data_path_bestageing2022}/output/tables/centers/center_mirna_stats.csv") )
 
+center_statistics_with_abbrev <- clean_all_meta %>% 
+  filter(patID %in% all_mirnas$pat_id) %>% 
+  mutate(
+    abbrev_center_name = (sub("-[0-9]+$", "", patID)),
+    full_center_name = case_when(
+      abbrev_center_name == "AMC" ~  "Academisch Medisch Centrum bij de Universiteit van Amsterdam",
+      abbrev_center_name == "GUF" ~  "JOHANN WOLFGANG GOETHE UNIVERSITAET FRANKFURT AM MAIN",
+      abbrev_center_name == "INSERM" ~  "INSTITUT NATIONAL DE LA SANTE ET DE LA RECHERCHE MEDICALE",
+      abbrev_center_name == "NSC" ~  "National Scientific Center Institute of cardiology n.a. M.D.Strazhesko",
+      abbrev_center_name == "SERMAS" ~  "SERVICIO MADRILENO DE SALUD",
+      abbrev_center_name == "SFNH" ~  "AZIENDA COMPLESSO OSPEDALIERO SAN FILIPPO NERI",
+      abbrev_center_name == "UCSC" ~  "UNIVERSITA CATTOLICA DEL SACRO CUORE",
+      abbrev_center_name == "UKL-HD" ~  "UNIVERSITAETSKLINIKUM HEIDELBERG", 
+      abbrev_center_name == "UNIPD" ~  "UNIVERSITA DEGLI STUDI DI PADOVA", 
+      abbrev_center_name == "UOA" ~  "NATIONAL AND KAPODISTRIAN UNIVERSITY OF ATHENS", 
+      abbrev_center_name == "UU" ~  "UPPSALA UNIVERSITET"
+    )
+  ) %>% 
+  select(abbrev_center_name, full_center_name) %>% 
+  group_by(abbrev_center_name, full_center_name) %>% 
+  summarize(n=n())
+
+center_statistics_with_abbrev
   

@@ -1720,7 +1720,7 @@ if (SAVE.files ==TRUE ){
 
 
 # Venn diagramm 4 miRetrieve -------------------------------------------------------------
-
+# loaded at section # Figures Vogel
 list_vann <- list(
   ACS = miRetrieve_alldiseases$TargetName[miRetrieve_alldiseases$Topic == "ACS"],
   CAD = miRetrieve_alldiseases$TargetName[miRetrieve_alldiseases$Topic == "CAD"],
@@ -2024,6 +2024,9 @@ sect_properties <- prop_section(
   #section_columns = section_columns(widths = c(4.75, 4.75))
 )
 
+# also extract miRNAs per disease for downstream analysis with https://ccb-compute2.cs.uni-saarland.de/mieaa/user_input/
+mieaa_input <- tibble(disease= character(), miRNA = character() )
+
 for(mydisease in 1:nrow(all_combis)) {
   # de.results_old <- readRDS(dplyr::last(list.files(path = "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022/output/de_results", pattern = paste0("_de_results_DISEASE_", disease_vector[disease]), full.names = TRUE)))
   path2dataprocessed <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_{all_combis$diseases[mydisease]}_data01.rds")
@@ -2057,6 +2060,12 @@ for(mydisease in 1:nrow(all_combis)) {
            AUC, AUC_LL, AUC_UL, log2FoldChange) %>% 
     arrange(ttest_rawp) 
   
+  mieaa_input <- mieaa_input %>%
+    bind_rows(tibble(
+      disease = all_combis$diseases[mydisease],
+      miRNA = de.results_tmp %>% filter(ttest_adjp <0.05) %>% arrange(log2FoldChange) %>% pull(miRNA)
+    ))
+  
   de.results_tmp_word <- de.results_tmp %>% 
     mutate(AUC = round(AUC, 3), AUC_LL=round(AUC_LL,3), AUC_UL=round(AUC_UL, 3) ) %>% 
     mutate(AUC = glue("{AUC} ({AUC_LL}; {AUC_UL})")) %>% 
@@ -2064,21 +2073,21 @@ for(mydisease in 1:nrow(all_combis)) {
     mutate(across(where(is.numeric) & !all_of(c("AUC", "log2FoldChange")), ~ sprintf("%.2E", .)))
   de.results_tmp_word
   
-  file_path <- glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_de_results_batch_corrected.docx")
-  
-  # table 
-  de_results_flextable <- flextable(de.results_tmp_word) %>% 
-    colformat_double(
-      big.mark = ",", digits = 3, na_str = "N/A"
-    ) %>% 
-    set_table_properties(layout = "autofit", align= "left") %>%
-    fontsize(size = 8, part = "all") %>% 
-    flextable::font(fontname = "Times New Roman", part = "all") %>%
-    autofit() %>% 
-    save_as_docx(path=file_path, pr_section = sect_properties)
+  # uncomment to save again
+  # file_path <- glue("{data_path_bestageing2022}/output/de_results/{all_combis$diseases[mydisease]}/20240125_001c_de_results_batch_corrected.docx")
+  # 
+  # # table 
+  # de_results_flextable <- flextable(de.results_tmp_word) %>% 
+  #   colformat_double(
+  #     big.mark = ",", digits = 3, na_str = "N/A"
+  #   ) %>% 
+  #   set_table_properties(layout = "autofit", align= "left") %>%
+  #   fontsize(size = 8, part = "all") %>% 
+  #   flextable::font(fontname = "Times New Roman", part = "all") %>%
+  #   autofit() %>% 
+  #   save_as_docx(path=file_path, pr_section = sect_properties)
   
 }
-
 
 # look at top values for i=1...4
 de.results_tmp %>% arrange(desc(AUC))
@@ -2087,3 +2096,256 @@ min(de.results_tmp$AUC)
 
 
 
+# MiEAA analysis 10/2024 --------------------------------------------------------
+# https://ccb-compute2.cs.uni-saarland.de/mieaa/user_input/ 
+
+# 1) mirna type mature 2) ORA test type 3) homo sapiens and testset from below 4) no ref 
+# 5) SELECTED: pathways (KEGG), Target genes (miRTarBase), Diseases (miRWalk), Gene Ontology (miRWalk), 
+# Pathways (miRWalk), Diseases (MNDR), Cell-type-specific (Atlas), Cell-type specific (cellular microRNAome), Expressed in tissue (Tissue Atlas),
+# Tissue specific (isomiRdb), high confidence (MirGeneDB), isomiRs (isomiRdb)
+# all selected in expert mode, p-val: FDR adj, 
+
+mieaa_input
+
+# acs
+acs_list <- mieaa_input %>% 
+  filter(disease=="acs") %>% 
+  slice(1:30) %>% # already arranged above according to log2foldchange
+  select(miRNA) %>% 
+  pull()
+
+formatted_acs_miRNA <- paste(acs_list, collapse = "\n")
+cat(formatted_acs_miRNA)
+
+# cad
+cad_list <- mieaa_input %>% 
+  filter(disease=="cad") %>% 
+  slice(1:30) %>% # already arranged above according to log2foldchange
+  select(miRNA) %>% 
+  pull()
+
+formatted_cad_miRNA <- paste(cad_list, collapse = "\n")
+cat(formatted_cad_miRNA)
+
+# dcm
+dcm_list <- mieaa_input %>% 
+  filter(disease=="dcm") %>% 
+  slice(1:30) %>% # already arranged above according to log2foldchange
+  select(miRNA) %>% 
+  pull()
+
+formatted_dcm_miRNA <- paste(dcm_list, collapse = "\n")
+cat(formatted_dcm_miRNA)
+
+# hfref
+hfref_list <- mieaa_input %>% 
+  filter(disease=="hfref") %>% 
+  slice(1:30) %>% # already arranged above according to log2foldchange
+  select(miRNA) %>% 
+  pull()
+
+formatted_hfref_miRNA <- paste(hfref_list, collapse = "\n")
+cat(formatted_hfref_miRNA)
+
+
+# read results
+library(ggsci)
+
+mieaa_hfref <- read.csv(file = glue("{data_path_bestageing2022}/output/de_results/MiEAA/mieaa_hfref.csv")) %>% 
+  as_tibble()
+
+library(ggplot2)
+
+
+## connection to MiEAA API ----------
+
+library(rbioapi)
+# https://rbioapi.moosa-r.com/articles/rbioapi_mieaa.html
+# https://rbioapi.moosa-r.com/
+
+rba_options(save_file = TRUE)
+rba_options(verbose = FALSE)
+
+# all categories 
+rba_mieaa_cats(mirna_type = "mature", species = "hsa")
+
+### acs -----------
+mieaa_acs <- rba_mieaa_enrich(test_set = acs_list,
+                              mirna_type = "mature",
+                              test_type = "ORA",
+                              species = "hsa")
+mieaa_acs <- mieaa_acs %>% 
+  as_tibble() %>% 
+  mutate(disease="acs")
+
+mieaa_acs_gsea <- rba_mieaa_enrich(test_set = acs_list,
+                              mirna_type = "mature",
+                              test_type = "GSEA",
+                              species = "hsa")
+
+mieaa_acs_gsea <- mieaa_acs_gsea %>% as_tibble()
+
+mieaa_acs_gsea %>% 
+  filter(stringr::str_detect(string = Category, pattern = "Diseases \\(MNDR\\)")) %>% 
+  mutate(
+    highlight = ifelse(Subcategory == "Cardiovascular disease", TRUE, FALSE),
+    `P-value` = as.numeric(`P-value`)
+  ) %>% 
+  rename(
+    P.value = `P-value`
+  ) %>% 
+  ggplot(aes(x = Category, y = -log10(P.value))) +
+  geom_violin(fill = "#3366cc", color = "black", alpha = 0.5, width=0.3, position = position_nudge(x = -0.3)) +  # Move violin left
+  # other points
+  geom_jitter(data = . %>% filter(highlight == FALSE), size = 2, alpha=0.4, shape=16, aes(color = "Other"), 
+              position = position_jitter(width = 0.1, height = 0)) +  # Move points left
+  # highlighted points
+  geom_jitter(data = . %>% filter(highlight == TRUE), size = 2, aes(color = "Cardiovascular disease"), 
+              position = position_jitter(width = 0.1, height = 0)) +  # Highlight Cardiovascular disease points
+  # label
+  scale_color_manual(values = c("Other" = "black", "Cardiovascular disease" = "#dc3912"),
+                     labels = c("Other" = "Other", "Cardiovascular disease" = "Cardiovascular disease")) +  # Custom legend labels
+  theme_minimal(base_size = 16) +
+  labs(y = "-log10(P-value)", x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.title = element_blank())  # Remove legend title
+
+### cad -----------
+
+mieaa_cad <- rba_mieaa_enrich(test_set = cad_list,
+                              mirna_type = "mature",
+                              test_type = "ORA",
+                              species = "hsa") %>% as_tibble()
+mieaa_cad <- mieaa_cad %>% 
+  mutate(disease="cad")
+
+
+### dcm -----------
+
+mieaa_dcm <- rba_mieaa_enrich(test_set = dcm_list,
+                              mirna_type = "mature",
+                              test_type = "ORA",
+                              species = "hsa") %>% as_tibble()
+mieaa_dcm <- mieaa_dcm %>% 
+  mutate(disease="dcm")
+
+### hfref -----------
+
+mieaa_hfref <- rba_mieaa_enrich(test_set = hfref_list,
+                              mirna_type = "mature",
+                              test_type = "ORA",
+                              species = "hsa") %>% as_tibble()
+
+mieaa_hfref <- mieaa_hfref %>% 
+  mutate(disease="hfref")
+
+
+## plot MNDR diseases associations https://academic.oup.com/nar/article/49/D1/D160/5896430  -------------
+# MNDR v3.0: mammal ncRNA–disease repository with increased coverage and annotation
+
+# combine all data
+mieaa_combined <- mieaa_acs %>% 
+  bind_rows(mieaa_cad) %>% 
+  bind_rows(mieaa_dcm) %>% 
+  bind_rows(mieaa_hfref) %>% 
+  mutate(`P-value` = as.numeric(`P-value`)) %>% 
+  rename(P.value = `P-value`)
+
+
+mieaa_combined$disease %>% table()
+
+plot_mieaa_combined <- mieaa_combined %>% 
+  filter(stringr::str_detect(string = Category, pattern = "Diseases \\(MNDR\\)")) %>% 
+  mutate(
+    highlight = ifelse(Subcategory == "Cardiovascular disease", TRUE, FALSE)
+  ) %>% 
+  ggplot(aes(x = disease, y = -log10(P.value))) +
+  geom_violin(fill = "#0072B2", color = "black", alpha = 0.5, width=0.3, position = position_nudge(x = -0.25)) +  # Move violin left
+  # other points
+  geom_jitter(data = . %>% filter(highlight == FALSE), size = 1, alpha=0.2, shape=16, aes(color = "Other"), 
+              position = position_jitter(width = 0.1, height = 0)) +  # Move points left
+  # highlighted points
+  geom_jitter(data = . %>% filter(highlight == TRUE), size = 2, aes(color = "Cardiovascular disease"), 
+              position = position_jitter(width = 0.1, height = 0)) +  # Highlight Cardiovascular disease points
+  # label
+  scale_color_manual(values = c("Other" = "black", "Cardiovascular disease" = "#E69F00"),
+                     labels = c("Other" = "Other", "Cardiovascular disease" = "Cardiovascular disease")) +  # Custom legend labels
+  scale_x_discrete(labels = c("ACS", "CAD", "DCM", "ICM")) + 
+  theme_minimal(base_size = 16) +
+  labs(y = "-log10(P-value)", x = "") +
+  theme(
+    #axis.text.x = element_text(angle = 45, hjust = 1), 
+    legend.title = element_blank(),
+    legend.position = "bottom"
+  )  
+
+plot_mieaa_combined
+
+ggsave(filename = glue::glue("{data_path_bestageing2022}/output/plots/de_analysis/20241023_MNDR_disease_violins.svg"),
+       plot= plot_mieaa_combined, width = 6, height = 5)
+
+mieaa_combined %>% 
+  select(Category) %>% 
+  table()
+
+
+# barplot over all associations
+
+# https://github.com/tidyverse/ggplot2/issues/1902 ordering issue
+mieaa_disease_plot_fn <- function(disease_var) {
+  mieaa_combined %>% 
+    filter(disease == disease_var) %>% 
+    arrange(P.value) %>% 
+    slice(1:20) %>% 
+    ggplot(aes(x=fct_reorder(Subcategory, -P.value), y=-log10(P.value))) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.01))) +
+    geom_col(fill="#3366cc", alpha=1) +
+    coord_flip() +
+    theme_minimal(base_size = 16) +
+    labs(x = "", y = "-log10(P.value)")
+} 
+
+mieaa_disease_plot_fn(disease_var = "acs")
+
+ggsave(filename = glue::glue("{data_path_bestageing2022}/output/plots/de_analysis/20241023_enriched_categories_acs.svg"),
+               plot= mieaa_disease_plot_fn(disease_var = "acs"), width = 10, height = 5)
+ggsave(filename = glue::glue("{data_path_bestageing2022}/output/plots/de_analysis/20241023_enriched_categories_cad.svg"),
+       plot= mieaa_disease_plot_fn(disease_var = "cad"), width = 10, height = 5)
+ggsave(filename = glue::glue("{data_path_bestageing2022}/output/plots/de_analysis/20241023_enriched_categories_dcm.svg"),
+       plot= mieaa_disease_plot_fn(disease_var = "dcm"), width = 10, height = 5)
+ggsave(filename = glue::glue("{data_path_bestageing2022}/output/plots/de_analysis/20241023_enriched_categories_hfref.svg"),
+       plot= mieaa_disease_plot_fn(disease_var = "hfref"), width = 10, height = 5)
+
+
+## Published ----------
+mieaa_combined %>% 
+  filter(stringr::str_detect(string = Category, pattern = "Published")) %>% 
+  rename(
+    P.value = `P-value`
+  ) %>% 
+  group_by(disease) %>% 
+  arrange(P.value) %>% 
+  slice(1:10) %>% View()
+
+# isomiRs
+
+mieaa_combined %>% 
+  filter(stringr::str_detect(string = Category, pattern = "isomiRs")) %>% 
+  rename(
+    P.value = `P-value`
+  ) %>% 
+  group_by(disease) %>% 
+  arrange(P.value) %>% 
+  slice(1:10) %>% View()
+
+# KEGG (miRPathDB)
+
+mieaa_combined %>% 
+  filter(stringr::str_detect(string = Category, pattern = "KEGG")) %>% 
+  rename(
+    P.value = `P-value`
+  ) %>% 
+  group_by(disease) %>% 
+  arrange(P.value) %>% 
+  slice(1:10) %>% View()
+cad_list
