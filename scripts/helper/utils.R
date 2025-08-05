@@ -1,7 +1,7 @@
 # Utility functions for the BestAgeing2022 project
 
 # Load configuration
-source(file.path(dirname(dirname(getwd())), "scripts/config/config.R"))
+source("/mnt/nas185/reich/rockerprojects/bestageing2022/scripts/config/config.R")
 paths <- get_project_paths()
 
 # ----- Data Processing Functions -----
