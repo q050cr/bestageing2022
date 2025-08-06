@@ -21,7 +21,12 @@ get_project_paths <- function(mount_filesystem = TRUE) {
   )
 
   # Override paths for MacBook
-  if (grepl("MacBook-Pro-CR-2065|dhcp172-619.laptop-zim.uni-heidelberg.de", system_name)) {
+  if (
+    grepl(
+      "MacBook-Pro-CR-2065|dhcp172-619.laptop-zim.uni-heidelberg.de",
+      system_name
+    )
+  ) {
     if (mount_filesystem) {
       # Mounted filesystem paths
       paths$lib_path <- .libPaths()[1]
