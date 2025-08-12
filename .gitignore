@@ -17,6 +17,8 @@ scripts/miRetrieve.R
 README-FM-bestageing.txt
 README-lab-request.txt
 
+mirna_ntprobnp.txt
+
 # dirs
 data/
 data-literature/
@@ -39,7 +41,7 @@ scripts/gpt/test-python/
 scripts/gpt/debug/
 scripts/gpt/helper/
 scripts/old
-
+quarto_output/
 writing/
 .secret
 

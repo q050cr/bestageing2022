@@ -1,0 +1,2096 @@
+---
+title: "miRNA Biomarkers in Cardiovascular Disease: NT-proBNP Comparative Analysis"
+subtitle: "Supplementary Analysis for miRNAs in Cardiovascular Disease"
+author: "BestAgeing Study Consortium"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: false
+    echo: false
+    #code-fold: true
+    #code-tools: true
+    #code-summary: "Show the code"
+    theme: cosmo
+    fig-width: 10
+    fig-height: 8
+    df-print: kable
+  pdf:
+    toc: true
+    number-sections: false
+    colorlinks: true
+    echo: false
+    fig-width: 7
+    fig-height: 5
+    df-print: kable
+    geometry:  # Set margins for PDF output default geometry: margin=1in (25.4mm all sides)
+      - top=20mm
+      - left=15mm
+      - right=15mm
+      - bottom=20mm
+    mainfont: Times New Roman
+    documentclass: report 
+    classoption: [11pt] # Font size
+    keep-tex: false # Keep the intermediate .tex file for debugging
+bibliography: ../references.bib
+---
+
+# Executive Summary
+
+This analysis investigates the diagnostic performance of individual miRNAs and machine learning-derived miRNA signatures compared to NT-proBNP in discriminating between dilated cardiomyopathy (DCM), heart failure with reduced ejection fraction (HFrEF), and healthy controls. We evaluate both univariate and multivariate diagnostic models, including incremental benefit analysis and clinical reclassification potential.
+
+## Key Findings
+
+- **Comparative Performance**: Top-performing individual miRNAs achieve diagnostic accuracy comparable to NT-proBNP
+- **ML Signature Superiority**: Machine learning-derived miRNA signatures demonstrate enhanced diagnostic performance compared to individual miRNAs
+- **Incremental Benefit**: Both individual miRNAs and ML signatures provide additional diagnostic information when combined with NT-proBNP
+- **Clinical Utility**: Individual miRNAs and ML signatures demonstrate potential for patient reclassification in the NT-proBNP gray zone (125-450 pg/mL)
+
+# Methods
+
+## Study Population
+
+The analysis includes patients from the BestAgeing study with:
+
+- **DCM patients**: Dilated cardiomyopathy cases with available miRNA and NT-proBNP data
+- **HFrEF patients**: Heart failure with reduced ejection fraction cases  
+- **Controls**: Healthy individuals with NT-proBNP <450 pg/mL
+
+## Data Processing
+
+### NT-proBNP Preprocessing
+- Controls with NT-proBNP >450 pg/mL excluded to ensure healthy control status
+- Missing NT-proBNP values in controls imputed using control group mean
+- All analyses performed on patients with complete covariate data
+
+### miRNA Data
+- Preprocessed expression values from established pipelines
+- Standard quality control and normalization applied
+- Missing values handled per established protocols
+
+## Statistical Analysis
+
+### Diagnostic Performance Assessment
+1. **Univariate AUC**: ROC analysis for individual biomarkers
+2. **Multivariate Models**: Logistic regression adjusting for age and sex
+3. **Incremental Benefit**: AUC improvement when combining miRNAs with NT-proBNP
+
+### Clinical Reclassification Analysis
+- **Gray Zone Definition**: NT-proBNP 125-450 pg/mL (intermediate diagnostic confidence)
+- **Reclassification Thresholds**: High-risk >0.7 probability, Low-risk <0.3 probability
+- **Net Reclassification Improvement (NRI)**: Quantifying clinical utility
+
+```{r setup}
+#| include: false
+#| code-fold: false
+
+# Load required libraries
+library(tidyverse)
+library(limma)
+library(edgeR)
+library(ggplot2)
+library(readxl)
+library(writexl)
+library(pROC)
+library(janitor)
+library(glue)
+library(ggthemes)
+library(workflows)
+library(tune)
+library(tidymodels)
+library(colino)
+library(knitr)
+library(kableExtra)
+
+# Set paths
+data_path_bestageing2022 <- "/mnt/nas185/reich/rockerprojects/bestageing2022"
+data_path_BestAgeing <- "/mnt/nas185/reich/BestAgeing"
+
+# Load custom theme
+source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
+
+# Create output directories if they don't exist
+if (!dir.exists("output")) dir.create("output")
+if (!dir.exists("figures")) dir.create("figures")
+```
+
+```{r helper-functions}
+#| code-fold: true
+
+# Helper functions
+convert_mir_name <- function(name) {
+  name <- gsub("mir", "miR", name)
+  name <- gsub("_", "-", name)
+  return(name)
+}
+convert_mir_name_V <- Vectorize(convert_mir_name)
+
+# Data cleaning function for NT-proBNP analysis
+clean_ntprobnp_data <- function(data, disease_name) {
+  cat("Initial data dimensions:", dim(data), "\n")
+
+  # Remove controls with NT-proBNP > 450
+  controls_high_bnp <- data$disease == "control" &
+    !is.na(data$ntprobnp) &
+    data$ntprobnp > 450
+  n_removed_controls <- sum(controls_high_bnp, na.rm = TRUE)
+
+  if (n_removed_controls > 0) {
+    data <- data[!controls_high_bnp, ]
+    cat("Removed", n_removed_controls, "controls with NT-proBNP > 450\n")
+  }
+
+  # remove duplicates 2025-08-10
+  data <- data[!duplicated(data$pat_id), ]
+
+  # Mean imputation for controls with missing NT-proBNP
+  control_ntprobnp_mean <- mean(data$ntprobnp[data$disease == "control"], na.rm = TRUE)
+  missing_control_bnp <- data$disease == "control" & is.na(data$ntprobnp)
+  n_imputed <- sum(missing_control_bnp, na.rm = TRUE)
+  data$ntprobnp[missing_control_bnp] <- control_ntprobnp_mean
+
+  if (n_imputed > 0) {
+    cat(
+      "Imputed NT-proBNP for", n_imputed, "controls using mean =",
+      round(control_ntprobnp_mean, 2), "\n"
+    )
+  }
+
+  # Store imputation value for filtering
+  attr(data, "control_imputation_value") <- control_ntprobnp_mean
+
+  # Remove patients with missing NT-proBNP for GLM analysis
+  data_glm <- data[!is.na(data$ntprobnp), ]
+  n_removed_missing <- nrow(data) - nrow(data_glm)
+
+  cat("Final data dimensions for analysis:", dim(data_glm), "\n")
+
+  return(list(full_data = data, glm_data = data_glm))
+}
+```
+
+# Data Loading and Preprocessing
+
+```{r}
+#| label: load-ml-model-results
+
+# created in ml_signature_ntprobnp_analysis.qmd
+
+dcm_ml_result <- readRDS(glue("{data_path_bestageing2022}/revision2025/data/dcm_ml_result.rds"))
+hfref_ml_result <- readRDS(glue("{data_path_bestageing2022}/revision2025/data/hfref_ml_result.rds"))
+
+# Extract ML predictions for integration
+dcm_ml_predictions <- dcm_ml_result$data %>%
+  select(pat_id, .pred_dcm_logistic_reg_norm_selected_dcm) %>%
+  rename(ml_signature_dcm = .pred_dcm_logistic_reg_norm_selected_dcm)
+
+hfref_ml_predictions <- hfref_ml_result$data %>%
+  select(pat_id, .pred_hfref_logistic_reg_norm_selected_hfref) %>%
+  rename(ml_signature_hfref = .pred_hfref_logistic_reg_norm_selected_hfref)
+```
+
+```{r}
+#| label: data-loading
+#| include: false
+
+# Load processed miRNA data
+path2dataprocessed_dcm <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_dcm_data01.rds")
+path2dataprocessed_hfref <- glue("{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_hfref_data01.rds")
+
+data_processed_dcm <- readRDS(path2dataprocessed_dcm)
+data_processed_hfref <- readRDS(path2dataprocessed_hfref)
+
+# Load clinical metadata
+meta_dcm <- read_excel("/mnt/nas185/reich/BestAgeing/data/pheno_dcm.xlsx") %>%
+  mutate(
+    BestAgeingCode,
+    phenodat = "dcm",
+    ntprobnp = as.numeric(`DCM-Lab-ProBNP`),
+    crea = as.numeric(`DCM-Lab-Cr`),
+    lvdil_henry = as.numeric(`DCM-ECH-LVDil-Henry`),
+    lvdil_lvedd = as.numeric(`DCM-ECH-LVDil-LVEDD`),
+    lvsyst_ef = as.numeric(`DCM-ECH-LVSyst-EF`),
+    symptoms = `DCM-PheDef-Symptoms`,
+    wbc = as.numeric(`DCM-Lab-WBC`),
+    .keep = "none"
+  )
+
+meta_hfref <- read_excel("/mnt/nas185/reich/BestAgeing/data/pheno_hfref.xlsx") %>%
+  mutate(
+    BestAgeingCode,
+    phenodat = "hfref",
+    ntprobnp = as.numeric(`SD-Lab-ProBNP`),
+    crea = as.numeric(`SD-Lab-Cr`),
+    lvdil_henry = as.numeric(`SD-ECH-LVDil-Henry`),
+    lvdil_lvedd = as.numeric(`SD-ECH-LVDil-LVEDD`),
+    lvsyst_ef = as.numeric(`SD-ECH-LVSyst-EF`),
+    dyspnea = `SD-CliExam-Dyspnea`,
+    wbc = as.numeric(`SD-Lab-WBC`),
+    .keep = "none"
+  )
+
+meta_control <- read_excel("/mnt/nas185/reich/BestAgeing/data/pheno_controls.xlsx") %>%
+  mutate(
+    BestAgeingCode,
+    phenodat = "control",
+    ntprobnp = as.numeric(`Controls-Lab-ProBNP`),
+    crea = as.numeric(`Controls-Lab-Cr`),
+    .keep = "none"
+  )
+
+meta_all <- bind_rows(meta_dcm, meta_hfref, meta_control)
+
+# Merge with processed data
+dcm_merged <- data_processed_dcm %>%
+  left_join(meta_all, by = c("pat_id" = "BestAgeingCode")) %>%
+  mutate(preprocessing = "dcm_pipeline")
+
+hfref_merged <- data_processed_hfref %>%
+  left_join(meta_all, by = c("pat_id" = "BestAgeingCode")) %>%
+  mutate(preprocessing = "hfref_pipeline")
+
+# Clean data for NT-proBNP analysis
+dcm_cleaned <- clean_ntprobnp_data(dcm_merged, "dcm")
+hfref_cleaned <- clean_ntprobnp_data(hfref_merged, "hfref")
+
+# Merge ML predictions with cleaned datasets
+dcm_cleaned$full_data <- dcm_cleaned$full_data %>%
+  left_join(dcm_ml_predictions, by = "pat_id")
+dcm_cleaned$glm_data <- dcm_cleaned$glm_data %>%
+  left_join(dcm_ml_predictions, by = "pat_id")
+
+hfref_cleaned$full_data <- hfref_cleaned$full_data %>%
+  left_join(hfref_ml_predictions, by = "pat_id")
+hfref_cleaned$glm_data <- hfref_cleaned$glm_data %>%
+  left_join(hfref_ml_predictions, by = "pat_id")
+```
+
+
+
+```{r}
+#| label: sample-characteristics
+#| echo: false
+
+# Calculate sample characteristics
+dcm_summary <- dcm_cleaned$glm_data %>%
+  # remove imputed control values
+  mutate(
+    ntprobnp = ifelse(ntprobnp == attr(dcm_cleaned$glm_data, "control_imputation_value"), NA, ntprobnp),
+  ) |>
+  group_by(disease) %>%
+  summarise(
+    n = n(),
+    age_mean = round(mean(age, na.rm = TRUE), 1),
+    age_sd = round(sd(age, na.rm = TRUE), 1),
+    female_pct = round(100 * mean(sex == "Female", na.rm = TRUE), 1),
+    ntprobnp_median = round(median(ntprobnp, na.rm = TRUE), 0),
+    ntprobnp_iqr_low = round(quantile(ntprobnp, 0.25, na.rm = TRUE), 0),
+    ntprobnp_iqr_high = round(quantile(ntprobnp, 0.75, na.rm = TRUE), 0),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    age_summary = paste0(age_mean, " ± ", age_sd),
+    ntprobnp_summary = paste0(ntprobnp_median, " [", ntprobnp_iqr_low, "-", ntprobnp_iqr_high, "]"),
+    cohort = "DCM"
+  )
+
+hfref_summary <- hfref_cleaned$glm_data %>%
+  # remove imputed control values
+  mutate(
+    ntprobnp = ifelse(ntprobnp == attr(hfref_cleaned$glm_data, "control_imputation_value"), NA, ntprobnp),
+  ) |>
+  group_by(disease) %>%
+  summarise(
+    n = n(),
+    age_mean = round(mean(age, na.rm = TRUE), 1),
+    age_sd = round(sd(age, na.rm = TRUE), 1),
+    female_pct = round(100 * mean(sex == "Female", na.rm = TRUE), 1),
+    ntprobnp_median = round(median(ntprobnp, na.rm = TRUE), 0),
+    ntprobnp_iqr_low = round(quantile(ntprobnp, 0.25, na.rm = TRUE), 0),
+    ntprobnp_iqr_high = round(quantile(ntprobnp, 0.75, na.rm = TRUE), 0),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    age_summary = paste0(age_mean, " ± ", age_sd),
+    ntprobnp_summary = paste0(ntprobnp_median, " [", ntprobnp_iqr_low, "-", ntprobnp_iqr_high, "]"),
+    cohort = "HFrEF"
+  )
+
+# Combine summaries
+combined_summary <- bind_rows(dcm_summary, hfref_summary) %>%
+  select(cohort, disease, n, age_summary, female_pct, ntprobnp_summary) %>%
+  rename(
+    "Cohort" = cohort,
+    "Group" = disease,
+    "N" = n,
+    "Age (years)" = age_summary,
+    "Female (%)" = female_pct,
+    "NT-proBNP (pg/mL)" = ntprobnp_summary
+  )
+
+kable(combined_summary,
+  caption = "Baseline characteristics of study populations",
+  format = "html"
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, bold = TRUE) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+# Differential Expression Analysis
+
+This analysis evaluates miRNA diagnostic performance using multiple complementary approaches:
+
+1. **Univariate Analysis**: Individual miRNA discrimination ability  
+2. **Multivariate Models**: Adjusted for demographic confounders
+3. **Incremental Benefit**: Added value when combined with NT-proBNP
+
+```{r de-analysis-function}
+#| include: false
+
+run_de_analysis <- function(data_full, data_glm, disease_name) {
+  data <- data_full
+
+  # Filter to miRNA columns only
+  all_filtered_mirnas <- data %>%
+    select(-any_of(c(
+      "disease", "age", "sex", "phenodat", "ntprobnp",
+      "crea", "preprocessing"
+    ))) %>%
+    select(-contains("lvdil")) %>%
+    select(-contains("lvsyst")) %>%
+    select(-contains("dyspnea")) %>%
+    select(-contains("symptoms")) %>%
+    select(-contains("wbc"))
+
+  n_mirnas <- ncol(all_filtered_mirnas) - 1 # Subtract pat_id column
+
+  # Initialize result vectors
+  aucs <- aucs_lowerci <- aucs_upperci <- auc_glm <- auc_glm_ntprobnp <- rep(NA, n_mirnas)
+  pval_glm <- pval_glm_ntprobnp <- log2fc <- rep(NA, n_mirnas)
+  name_mir <- rep(NA, n_mirnas)
+
+  # NT-proBNP baseline model
+  data_glm_complete <- data_glm[!is.na(data_glm$ntprobnp) & !is.na(data_glm$age) & !is.na(data_glm$sex), ]
+  f_ntprobnp_only <- as.formula("disease ~ ntprobnp + age + sex")
+  glm_ntprobnp_only <- tryCatch(
+    {
+      glm(f_ntprobnp_only, data = data_glm_complete, family = binomial())
+    },
+    error = function(e) NULL
+  )
+
+  auc_ntprobnp_only <- NA
+  if (!is.null(glm_ntprobnp_only)) {
+    pred_ntprobnp_only <- predict(glm_ntprobnp_only, type = "response")
+    auc_ntprobnp_only <- as.numeric(roc(data_glm_complete$disease, pred_ntprobnp_only, quiet = TRUE)$auc)
+  }
+
+  # Analysis loop
+  cont_index <- data$disease == "control"
+  case_index <- data$disease == disease_name
+
+  pb <- txtProgressBar(min = 0, max = n_mirnas, style = 3)
+
+  for (i in 1:n_mirnas) {
+    mirna_col <- i + 1 # Skip pat_id column
+    cont <- as.numeric(data[cont_index, mirna_col, drop = TRUE])
+    case <- as.numeric(data[case_index, mirna_col, drop = TRUE])
+
+    # Remove NAs
+    cont <- cont[!is.na(cont)]
+    case <- case[!is.na(case)]
+
+    if (length(cont) < 2 || length(case) < 2) {
+      name_mir[i] <- names(data)[mirna_col]
+      next
+    }
+
+    # Basic stats
+    log2fc[i] <- mean(case) - mean(cont)
+    name_mir[i] <- names(data)[mirna_col]
+
+    # Univariate AUC with CI
+    roc_obj <- roc(controls = cont, cases = case, quiet = TRUE)
+    aucs[i] <- as.numeric(roc_obj$auc)
+    auc_ci <- ci(roc_obj, quiet = TRUE)
+    aucs_lowerci[i] <- auc_ci[1]
+    aucs_upperci[i] <- auc_ci[3]
+
+    # GLM models
+    mirna_name <- names(data)[mirna_col]
+
+    if (!mirna_name %in% names(data_glm)) next
+
+    # Model 1: miRNA + age + sex
+    data_complete <- data_glm[!is.na(data_glm[[mirna_name]]) &
+      !is.na(data_glm$age) &
+      !is.na(data_glm$sex), ]
+
+    if (nrow(data_complete) > 10) {
+      f1 <- as.formula(paste("disease ~", mirna_name, "+ age + sex"))
+      glm1 <- tryCatch(
+        {
+          glm(f1, data = data_complete, family = binomial())
+        },
+        error = function(e) NULL
+      )
+
+      if (!is.null(glm1)) {
+        pred1 <- predict(glm1, type = "response")
+        auc_glm[i] <- as.numeric(roc(data_complete$disease, pred1, quiet = TRUE)$auc)
+        pval_glm[i] <- coef(summary(glm1))[2, 4]
+      }
+
+      # Model 2: miRNA + age + sex + ntprobnp
+      data_complete_nt <- data_complete[!is.na(data_complete$ntprobnp), ]
+
+      if (nrow(data_complete_nt) > 10) {
+        f2 <- as.formula(paste("disease ~", mirna_name, "+ age + sex + ntprobnp"))
+        glm2 <- tryCatch(
+          {
+            glm(f2, data = data_complete_nt, family = binomial())
+          },
+          error = function(e) NULL
+        )
+
+        if (!is.null(glm2)) {
+          pred2 <- predict(glm2, type = "response")
+          auc_glm_ntprobnp[i] <- as.numeric(roc(data_complete_nt$disease, pred2, quiet = TRUE)$auc)
+          pval_glm_ntprobnp[i] <- coef(summary(glm2))[2, 4]
+        }
+      }
+    }
+
+    setTxtProgressBar(pb, i)
+  }
+  close(pb)
+
+  # Compile results
+  results <- tibble(
+    miRNA = name_mir,
+    log2FoldChange = log2fc,
+    auc_univariate = aucs,
+    auc_lowerci = aucs_lowerci,
+    auc_upperci = aucs_upperci,
+    auc_glm = auc_glm,
+    auc_glm_ntprobnp = auc_glm_ntprobnp,
+    pval_glm = pval_glm,
+    pval_glm_ntprobnp = pval_glm_ntprobnp,
+    auc_ntprobnp_baseline = auc_ntprobnp_only
+  ) %>%
+    mutate(
+      auc_univariate = ifelse(auc_univariate < 0.5, 1 - auc_univariate, auc_univariate),
+      padj_glm = p.adjust(pval_glm, method = "holm"),
+      padj_glm_ntprobnp = p.adjust(pval_glm_ntprobnp, method = "holm"),
+      incremental_benefit_vs_baseline = auc_glm - auc_ntprobnp_baseline,
+      incremental_benefit_combined = auc_glm_ntprobnp - auc_ntprobnp_baseline,
+      incremental_benefit_miRNA_added = auc_glm_ntprobnp - auc_glm
+    ) %>%
+    arrange(desc(auc_univariate))
+
+  return(results)
+}
+```
+
+```{r run-analysis}
+#| include: false
+
+# Run DE analysis for both datasets
+cat("Running DE analysis for DCM...\n")
+dcm_results <- run_de_analysis(dcm_cleaned$full_data, dcm_cleaned$glm_data, "dcm")
+
+cat("Running DE analysis for HFrEF...\n")
+hfref_results <- run_de_analysis(hfref_cleaned$full_data, hfref_cleaned$glm_data, "hfref")
+
+# Function to calculate ML signature performance
+calculate_ml_signature_performance <- function(data_full, data_glm, disease_name, ml_signature_col) {
+  # Use same structure as individual miRNA analysis
+  data_glm_complete <- data_glm[!is.na(data_glm[[ml_signature_col]]) &
+    !is.na(data_glm$ntprobnp) &
+    !is.na(data_glm$age) &
+    !is.na(data_glm$sex), ]
+
+  # Univariate analysis
+  cont <- data_full[data_full$disease == "control" & !is.na(data_full[[ml_signature_col]]), ml_signature_col, drop = TRUE]
+  case <- data_full[data_full$disease == disease_name & !is.na(data_full[[ml_signature_col]]), ml_signature_col, drop = TRUE]
+
+  if (length(cont) < 2 || length(case) < 2) {
+    return(NULL)
+  }
+
+  # Univariate AUC with CI
+  roc_obj <- roc(controls = cont, cases = case, quiet = TRUE)
+  auc_univariate <- as.numeric(roc_obj$auc)
+  auc_ci <- ci(roc_obj, quiet = TRUE)
+
+  # NT-proBNP baseline model
+  f_ntprobnp_only <- as.formula("disease ~ ntprobnp + age + sex")
+  glm_ntprobnp_only <- tryCatch(
+    glm(f_ntprobnp_only, data = data_glm_complete, family = binomial()),
+    error = function(e) NULL
+  )
+
+  auc_ntprobnp_baseline <- NA
+  if (!is.null(glm_ntprobnp_only)) {
+    pred_ntprobnp_only <- predict(glm_ntprobnp_only, type = "response")
+    auc_ntprobnp_baseline <- as.numeric(roc(data_glm_complete$disease, pred_ntprobnp_only, quiet = TRUE)$auc)
+  }
+
+  # Model 1: ML signature + age + sex
+  f1 <- as.formula(paste("disease ~", ml_signature_col, "+ age + sex"))
+  glm1 <- tryCatch(
+    glm(f1, data = data_glm_complete, family = binomial()),
+    error = function(e) NULL
+  )
+
+  auc_glm <- pval_glm <- NA
+  if (!is.null(glm1)) {
+    pred1 <- predict(glm1, type = "response")
+    auc_glm <- as.numeric(roc(data_glm_complete$disease, pred1, quiet = TRUE)$auc)
+    pval_glm <- coef(summary(glm1))[2, 4]
+  }
+
+  # Model 2: ML signature + age + sex + ntprobnp
+  f2 <- as.formula(paste("disease ~", ml_signature_col, "+ age + sex + ntprobnp"))
+  glm2 <- tryCatch(
+    glm(f2, data = data_glm_complete, family = binomial()),
+    error = function(e) NULL
+  )
+
+  auc_glm_ntprobnp <- pval_glm_ntprobnp <- NA
+  if (!is.null(glm2)) {
+    pred2 <- predict(glm2, type = "response")
+    auc_glm_ntprobnp <- as.numeric(roc(data_glm_complete$disease, pred2, quiet = TRUE)$auc)
+    pval_glm_ntprobnp <- coef(summary(glm2))[2, 4]
+  }
+
+  # Return results in same format as miRNA results
+  return(tibble(
+    miRNA = "miRNA Signature (ML)",
+    log2FoldChange = mean(case) - mean(cont),
+    auc_univariate = auc_univariate,
+    auc_lowerci = auc_ci[1],
+    auc_upperci = auc_ci[3],
+    auc_glm = auc_glm,
+    auc_glm_ntprobnp = auc_glm_ntprobnp,
+    pval_glm = pval_glm,
+    pval_glm_ntprobnp = pval_glm_ntprobnp,
+    auc_ntprobnp_baseline = auc_ntprobnp_baseline,
+    padj_glm = pval_glm, # No multiple testing correction for single comparison
+    padj_glm_ntprobnp = pval_glm_ntprobnp,
+    incremental_benefit_vs_baseline = auc_glm - auc_ntprobnp_baseline,
+    incremental_benefit_combined = auc_glm_ntprobnp - auc_ntprobnp_baseline,
+    incremental_benefit_miRNA_added = auc_glm_ntprobnp - auc_glm
+  ))
+}
+
+# Calculate ML signature performance
+cat("Calculating ML signature performance...\n")
+dcm_ml_performance <- calculate_ml_signature_performance(
+  dcm_cleaned$full_data, dcm_cleaned$glm_data, "dcm", "ml_signature_dcm"
+)
+
+hfref_ml_performance <- calculate_ml_signature_performance(
+  hfref_cleaned$full_data, hfref_cleaned$glm_data, "hfref", "ml_signature_hfref"
+)
+
+# Calculate NT-proBNP baseline performance
+ntprobnp_performance <- function(data, disease_name) {
+  if (all(is.na(data$ntprobnp))) {
+    return(NA)
+  }
+
+  data_clean <- data %>% filter(!is.na(ntprobnp))
+  cont <- data_clean[data_clean$disease == "control", "ntprobnp", drop = TRUE]
+  case <- data_clean[data_clean$disease == disease_name, "ntprobnp", drop = TRUE]
+
+  roc_obj <- roc(controls = cont, cases = case, quiet = TRUE)
+  return(as.numeric(roc_obj$auc))
+}
+
+ntprobnp_auc_dcm <- ntprobnp_performance(dcm_cleaned$full_data, "dcm")
+ntprobnp_auc_hfref <- ntprobnp_performance(hfref_cleaned$full_data, "hfref")
+```
+
+```{r}
+#| label: ntprobnp-performance
+
+cat("NT-proBNP univariate AUC DCM:", round(ntprobnp_auc_dcm, 3), "\n")
+cat("NT-proBNP univariate AUC HFrEF:", round(ntprobnp_auc_hfref, 3), "\n")
+```
+
+# Results
+
+## Baseline Biomarker Performance
+
+```{r baseline-performance}
+#| echo: false
+
+# NT-proBNP multivariate baseline from results
+ntprobnp_baseline_dcm <- unique(dcm_results$auc_ntprobnp_baseline)[1]
+ntprobnp_baseline_hfref <- unique(hfref_results$auc_ntprobnp_baseline)[1]
+
+baseline_performance <- tibble(
+  Cohort = c("DCM", "DCM", "HFrEF", "HFrEF"),
+  Model = c(
+    "NT-proBNP (univariate)", "NT-proBNP + age + sex",
+    "NT-proBNP (univariate)", "NT-proBNP + age + sex"
+  ),
+  AUC = c(
+    ntprobnp_auc_dcm, ntprobnp_baseline_dcm,
+    ntprobnp_auc_hfref, ntprobnp_baseline_hfref
+  )
+) %>%
+  mutate(AUC = round(AUC, 3))
+
+kable(baseline_performance,
+  caption = "NT-proBNP diagnostic performance across cohorts",
+  format = "html"
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  column_spec(1, bold = TRUE) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+NT-proBNP demonstrates excellent diagnostic performance in both cohorts, with multivariate models (adjusted for age and sex) achieving AUC values of `r round(ntprobnp_baseline_dcm, 3)` (DCM) and `r round(ntprobnp_baseline_hfref, 3)` (HFrEF).
+
+## Top-Performing miRNAs
+
+### DCM Cohort
+
+```{r}
+#| label: dcm-top-results
+#| echo: false
+
+# Combine individual miRNAs with ML signature
+dcm_combined_results <- dcm_results %>%
+  filter(!is.na(auc_univariate) & miRNA != "disease") %>%
+  head(9) # Take top 9 individual miRNAs
+
+if (!is.null(dcm_ml_performance)) {
+  dcm_combined_results <- bind_rows(dcm_combined_results, dcm_ml_performance)
+}
+
+dcm_top <- dcm_combined_results %>%
+  select(
+    miRNA, auc_univariate, auc_glm, auc_glm_ntprobnp,
+    incremental_benefit_vs_baseline, incremental_benefit_combined,
+    padj_glm
+  ) %>%
+  arrange(desc(auc_univariate)) %>%
+  mutate(
+    miRNA = ifelse(miRNA == "miRNA Signature (ML)", miRNA, convert_mir_name_V(miRNA)),
+    across(where(is.numeric), ~ round(.x, 3))
+  )
+
+kable(dcm_top,
+  col.names = c(
+    "miRNA", "Univariate AUC", "Multivariate AUC",
+    "Combined AUC", "vs Baseline Δ", "Combined Δ", "Adj. P-value"
+  ),
+  caption = "Top 10 miRNAs in DCM cohort with incremental benefit analysis",
+  format = "html"
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, bold = TRUE) %>%
+  add_header_above(c(
+    " " = 1, "Individual Performance" = 2,
+    "Combined Models" = 2, "Incremental Benefit" = 2
+  ))
+```
+
+### HFrEF Cohort
+
+```{r hfref-top-results}
+#| echo: false
+
+# Combine individual miRNAs with ML signature
+hfref_combined_results <- hfref_results %>%
+  filter(!is.na(auc_univariate) & miRNA != "disease") %>%
+  head(9) # Take top 9 individual miRNAs
+
+if (!is.null(hfref_ml_performance)) {
+  hfref_combined_results <- bind_rows(hfref_combined_results, hfref_ml_performance)
+}
+
+hfref_top <- hfref_combined_results %>%
+  select(
+    miRNA, auc_univariate, auc_glm, auc_glm_ntprobnp,
+    incremental_benefit_vs_baseline, incremental_benefit_combined,
+    padj_glm
+  ) %>%
+  arrange(desc(auc_univariate)) %>%
+  mutate(
+    miRNA = ifelse(miRNA == "miRNA Signature (ML)", miRNA, convert_mir_name_V(miRNA)),
+    across(where(is.numeric), ~ round(.x, 3))
+  )
+
+kable(hfref_top,
+  col.names = c(
+    "miRNA", "Univariate AUC", "Multivariate AUC",
+    "Combined AUC", "vs Baseline Δ", "Combined Δ", "Adj. P-value"
+  ),
+  caption = "Top 10 miRNAs in HFrEF cohort with incremental benefit analysis",
+  format = "html"
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, bold = TRUE) %>%
+  add_header_above(c(
+    " " = 1, "Individual Performance" = 2,
+    "Combined Models" = 2, "Incremental Benefit" = 2
+  ))
+```
+
+## Performance Visualization
+
+```{r}
+#| label: performance-visualization
+#| echo: false
+#| warning: false
+#| fig-width: 12
+#| fig-height: 8
+
+# Prepare data for visualization - include ML signature
+dcm_viz_data <- dcm_results %>%
+  filter(!is.na(auc_univariate) & miRNA != "disease") %>%
+  slice_max(auc_univariate, n = 14) # Take top 14 individual miRNAs
+
+if (!is.null(dcm_ml_performance)) {
+  dcm_viz_data <- bind_rows(dcm_viz_data, dcm_ml_performance)
+}
+
+dcm_viz <- dcm_viz_data %>%
+  mutate(
+    miRNA_clean = ifelse(miRNA == "miRNA Signature (ML)", miRNA, convert_mir_name_V(miRNA)),
+    miRNA_clean = fct_reorder(miRNA_clean, auc_univariate),
+    cohort = "DCM"
+  )
+
+hfref_viz_data <- hfref_results %>%
+  filter(!is.na(auc_univariate) & miRNA != "disease") %>%
+  slice_max(auc_univariate, n = 14) # Take top 14 individual miRNAs
+
+if (!is.null(hfref_ml_performance)) {
+  hfref_viz_data <- bind_rows(hfref_viz_data, hfref_ml_performance)
+}
+
+hfref_viz <- hfref_viz_data %>%
+  mutate(
+    miRNA_clean = ifelse(miRNA == "miRNA Signature (ML)", miRNA, convert_mir_name_V(miRNA)),
+    miRNA_clean = fct_reorder(miRNA_clean, auc_univariate),
+    cohort = "HFrEF"
+  )
+
+combined_viz <- bind_rows(dcm_viz, hfref_viz)
+
+# AUC comparison plot
+p1 <- combined_viz %>%
+  ggplot(aes(x = miRNA_clean, y = auc_univariate, fill = cohort)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  geom_hline(
+    yintercept = c(ntprobnp_auc_dcm, ntprobnp_auc_hfref),
+    linetype = "dashed", alpha = 0.7, size = 1
+  ) +
+  coord_flip() +
+  scale_fill_manual(values = c("DCM" = "#1f77b4", "HFrEF" = "#ff7f0e")) +
+  labs(
+    title = "Top miRNA Diagnostic Performance vs NT-proBNP",
+    subtitle = "Dashed lines represent NT-proBNP univariate AUC for each cohort",
+    x = "miRNA",
+    y = "AUC (95% CI)",
+    fill = "Cohort"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Incremental benefit plot
+p2 <- combined_viz %>%
+  filter(!is.na(incremental_benefit_combined)) %>%
+  ggplot(aes(x = miRNA_clean, y = incremental_benefit_combined, fill = cohort)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  geom_hline(yintercept = 0, linetype = "solid", alpha = 0.5) +
+  coord_flip() +
+  scale_fill_manual(values = c("DCM" = "#1f77b4", "HFrEF" = "#ff7f0e")) +
+  labs(
+    title = "Incremental Benefit: miRNA + NT-proBNP vs NT-proBNP Alone",
+    subtitle = "Positive values indicate improved performance when combining biomarkers",
+    x = "miRNA",
+    y = "ΔAUC (Combined vs Baseline)",
+    fill = "Cohort"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "bottom"
+  )
+
+print(p1)
+print(p2)
+```
+
+## Clinical Interpretation
+
+### Key Performance Metrics
+
+- **Best miRNA Performance**: 
+  - DCM: `r convert_mir_name(dcm_top$miRNA[1])` (AUC = `r dcm_top$auc_univariate[1]`)
+  - HFrEF: `r convert_mir_name(hfref_top$miRNA[1])` (AUC = `r hfref_top$auc_univariate[1]`)
+
+- **Incremental Benefit**: Several miRNAs provide meaningful diagnostic improvement when combined with NT-proBNP, with ΔAUC values up to `r max(c(dcm_top$incremental_benefit_combined, hfref_top$incremental_benefit_combined), na.rm = TRUE)`
+
+### Clinical Utility Assessment
+
+The analysis demonstrates that:
+
+1. **Comparable Individual Performance**: Top miRNAs achieve diagnostic accuracy approaching that of NT-proBNP
+2. **Additive Information**: Combining miRNAs with NT-proBNP improves diagnostic performance beyond either biomarker alone
+3. **Disease-Specific Patterns**: Different miRNAs show optimal performance in DCM versus HFrEF, suggesting distinct pathophysiological mechanisms
+
+# Gray Zone Analysis
+
+```{r}
+#| label: gray-zone-analysis
+
+gray_zone_analysis <- function(data, results, disease_name, limit_disyplay = 5) {
+  # Use data with actual NT-proBNP measurements only
+  data_original <- data %>% filter(!is.na(ntprobnp))
+
+  # Remove imputed control values
+  imputation_value <- attr(data, "control_imputation_value")
+  if (!is.null(imputation_value)) {
+    data_original <- data_original %>%
+      filter(!(disease == "control" & abs(ntprobnp - imputation_value) < 0.01))
+  }
+
+  if (nrow(data_original) < 20) {
+    return(tibble())
+  }
+
+  # Calculate quartiles for disease group
+  data_disease_only <- data_original %>% filter(disease == disease_name)
+  median_ntprobnp <- median(data_disease_only$ntprobnp, na.rm = TRUE)
+
+  # Gray zone (lower than median)
+  gray_zone_data <- data_original %>% filter(ntprobnp < median_ntprobnp)
+
+  # Test top miRNAs in gray zone
+  top_mirnas <- results %>%
+    filter(miRNA != "disease", !is.na(auc_univariate)) %>%
+    slice_max(auc_univariate, n = 5)
+
+  gray_zone_results <- tibble()
+
+  for (i in 1:min(limit_disyplay, nrow(top_mirnas))) { # Limit to top mirnas for display
+    mir_name <- top_mirnas$miRNA[i]
+
+    if (!mir_name %in% names(gray_zone_data)) next
+
+    gray_glm_data <- gray_zone_data %>%
+      filter(!is.na(.data[[mir_name]]), !is.na(age), !is.na(sex)) %>%
+      mutate(disease_binary = ifelse(disease == disease_name, 1, 0))
+
+    if (nrow(gray_glm_data) < 15) next
+
+    # Models in gray zone
+    f1 <- as.formula(paste("disease_binary ~", mir_name, "+ age + sex"))
+    f2 <- as.formula("disease_binary ~ ntprobnp + age + sex")
+    f3 <- as.formula(paste("disease_binary ~", mir_name, "+ ntprobnp + age + sex"))
+
+    glm1 <- tryCatch(glm(f1, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+    glm2 <- tryCatch(glm(f2, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+    glm3 <- tryCatch(glm(f3, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+
+    if (!is.null(glm1) && !is.null(glm2) && !is.null(glm3)) {
+      auc1 <- as.numeric(roc(gray_glm_data$disease_binary, predict(glm1, type = "response"), quiet = TRUE)$auc)
+      auc2 <- as.numeric(roc(gray_glm_data$disease_binary, predict(glm2, type = "response"), quiet = TRUE)$auc)
+      auc3 <- as.numeric(roc(gray_glm_data$disease_binary, predict(glm3, type = "response"), quiet = TRUE)$auc)
+
+      # Statistical test for incremental benefit
+      stat_test_p <- anova(glm2, glm3, test = "Chisq")$`Pr(>Chi)`[2]
+
+      # Console output for incremental analysis
+      cat(sprintf("  %s Gray Zone Incremental Analysis:\n", mir_name))
+      cat(sprintf("    miRNA + age + sex:           AUC=%.3f\n", auc1))
+      cat(sprintf("    NT-proBNP + age + sex:       AUC=%.3f\n", auc2))
+      cat(sprintf("    Combined + age + sex:        AUC=%.3f\n", auc3))
+      cat(sprintf("    Incremental benefit:         Δ=%.3f (p=%.3f)\n", auc3 - auc2, stat_test_p))
+
+      gray_zone_results <- bind_rows(
+        gray_zone_results,
+        tibble(
+          miRNA = mir_name,
+          auc_mirna_model = auc1,
+          auc_ntprobnp_model = auc2,
+          auc_combined_model = auc3,
+          incremental_benefit = auc3 - auc2,
+          statistical_test_p = stat_test_p,
+          n_gray_zone = nrow(gray_glm_data),
+          n_cases_gray = sum(gray_glm_data$disease_binary == 1),
+          n_controls_gray = sum(gray_glm_data$disease_binary == 0),
+          median_ntprobnp_threshold = median_ntprobnp
+        )
+      )
+    }
+  }
+
+  return(gray_zone_results)
+}
+
+
+# Run gray zone analysis
+dcm_gray <- gray_zone_analysis(dcm_cleaned$full_data, dcm_results, "dcm")
+hfref_gray <- gray_zone_analysis(hfref_cleaned$full_data, hfref_results, "hfref")
+
+# Add ML signature to gray zone analysis
+gray_zone_analysis_ml <- function(data, disease_name, ml_signature_col, ml_name) {
+  # Use data with actual NT-proBNP measurements only
+  data_original <- data %>% filter(!is.na(ntprobnp))
+
+  # Remove imputed control values
+  imputation_value <- attr(data, "control_imputation_value")
+  if (!is.null(imputation_value)) {
+    data_original <- data_original %>%
+      filter(!(disease == "control" & abs(ntprobnp - imputation_value) < 0.01))
+  }
+
+  if (nrow(data_original) < 20) {
+    return(tibble())
+  }
+
+  # Calculate median for disease group
+  data_disease_only <- data_original %>% filter(disease == disease_name)
+  median_ntprobnp <- median(data_disease_only$ntprobnp, na.rm = TRUE)
+
+  # Gray zone (lower than median)
+  gray_zone_data <- data_original %>% filter(ntprobnp < median_ntprobnp)
+
+  # Test ML signature in gray zone
+  if (!ml_signature_col %in% names(gray_zone_data)) {
+    return(tibble())
+  }
+
+  gray_glm_data <- gray_zone_data %>%
+    filter(!is.na(.data[[ml_signature_col]]), !is.na(age), !is.na(sex)) %>%
+    mutate(disease_binary = ifelse(disease == disease_name, 1, 0))
+
+  if (nrow(gray_glm_data) < 15) {
+    return(tibble())
+  }
+
+  # Models in gray zone
+  f1 <- as.formula(paste("disease_binary ~", ml_signature_col, "+ age + sex"))
+  f2 <- as.formula("disease_binary ~ ntprobnp + age + sex")
+  f3 <- as.formula(paste("disease_binary ~", ml_signature_col, "+ ntprobnp + age + sex"))
+
+  glm1 <- tryCatch(glm(f1, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+  glm2 <- tryCatch(glm(f2, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+  glm3 <- tryCatch(glm(f3, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+
+  if (!is.null(glm1) && !is.null(glm2) && !is.null(glm3)) {
+    auc1 <- as.numeric(roc(gray_glm_data$disease_binary, predict(glm1, type = "response"), quiet = TRUE)$auc)
+    auc2 <- as.numeric(roc(gray_glm_data$disease_binary, predict(glm2, type = "response"), quiet = TRUE)$auc)
+    auc3 <- as.numeric(roc(gray_glm_data$disease_binary, predict(glm3, type = "response"), quiet = TRUE)$auc)
+
+    # Statistical test for incremental benefit
+    stat_test_p <- anova(glm2, glm3, test = "Chisq")$`Pr(>Chi)`[2]
+
+    # Console output for incremental analysis
+    cat(sprintf("  %s Gray Zone Incremental Analysis:\n", ml_name))
+    cat(sprintf("    ML signature + age + sex:       AUC=%.3f\n", auc1))
+    cat(sprintf("    NT-proBNP + age + sex:           AUC=%.3f\n", auc2))
+    cat(sprintf("    Combined + age + sex:            AUC=%.3f\n", auc3))
+    cat(sprintf("    Incremental benefit:             Δ=%.3f (p=%.3f)\n", auc3 - auc2, stat_test_p))
+
+    return(tibble(
+      miRNA = ml_name,
+      auc_mirna_model = auc1,
+      auc_ntprobnp_model = auc2,
+      auc_combined_model = auc3,
+      incremental_benefit = auc3 - auc2,
+      statistical_test_p = stat_test_p,
+      n_gray_zone = nrow(gray_glm_data),
+      n_cases_gray = sum(gray_glm_data$disease_binary == 1),
+      n_controls_gray = sum(gray_glm_data$disease_binary == 0),
+      median_ntprobnp_threshold = median_ntprobnp
+    ))
+  }
+
+  return(tibble())
+}
+
+# Add ML signature to gray zone results
+if (!is.null(dcm_ml_performance)) {
+  dcm_ml_gray <- gray_zone_analysis_ml(dcm_cleaned$full_data, "dcm", "ml_signature_dcm", "miRNA Signature (ML)")
+  if (nrow(dcm_ml_gray) > 0) {
+    dcm_gray <- bind_rows(dcm_gray, dcm_ml_gray)
+  }
+}
+
+if (!is.null(hfref_ml_performance)) {
+  hfref_ml_gray <- gray_zone_analysis_ml(hfref_cleaned$full_data, "hfref", "ml_signature_hfref", "miRNA Signature (ML)")
+  if (nrow(hfref_ml_gray) > 0) {
+    hfref_gray <- bind_rows(hfref_gray, hfref_ml_gray)
+  }
+}
+```
+
+```{r}
+#| label: roc-plot-fn
+
+# Plot ROC curves for gray zone analysis
+plot_gray_zone_roc <- function(data, results, disease_name, mirna_names) {
+  # Use data with actual NT-proBNP measurements only
+  data_original <- data %>% filter(!is.na(ntprobnp))
+
+  # Remove imputed control values
+  imputation_value <- attr(data, "control_imputation_value")
+  if (!is.null(imputation_value)) {
+    data_original <- data_original %>%
+      filter(!(disease == "control" & abs(ntprobnp - imputation_value) < 0.01))
+  }
+
+  # Calculate median for disease group
+  data_disease_only <- data_original %>% filter(disease == disease_name)
+  median_ntprobnp <- median(data_disease_only$ntprobnp, na.rm = TRUE)
+
+  # Gray zone data
+  gray_zone_data <- data_original %>% filter(ntprobnp < median_ntprobnp)
+
+  # Handle single miRNA vs vector
+  if (is.character(mirna_names) && length(mirna_names) == 1) {
+    mirna_names <- mirna_names
+  }
+
+  # Create plots for each miRNA
+  plot_list <- list()
+
+  for (mir_name in mirna_names) {
+    if (!mir_name %in% names(gray_zone_data)) next
+
+    gray_glm_data <- gray_zone_data %>%
+      filter(!is.na(.data[[mir_name]]), !is.na(age), !is.na(sex)) %>%
+      mutate(disease_binary = ifelse(disease == disease_name, 1, 0))
+
+    if (nrow(gray_glm_data) < 15) next
+
+    # Models
+    f2 <- as.formula("disease_binary ~ ntprobnp + age + sex")
+    f3 <- as.formula(paste("disease_binary ~", mir_name, "+ ntprobnp + age + sex"))
+
+    glm2 <- tryCatch(glm(f2, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+    glm3 <- tryCatch(glm(f3, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+
+    if (!is.null(glm2) && !is.null(glm3)) {
+      # Calculate ROCs
+      roc2 <- roc(gray_glm_data$disease_binary, predict(glm2, type = "response"), quiet = TRUE)
+      roc3 <- roc(gray_glm_data$disease_binary, predict(glm3, type = "response"), quiet = TRUE)
+
+      auc2 <- as.numeric(roc2$auc)
+      auc3 <- as.numeric(roc3$auc)
+      stat_test_p <- anova(glm2, glm3, test = "Chisq")$`Pr(>Chi)`[2]
+
+      # Create ROC data
+      roc_data <- bind_rows(
+        tibble(
+          specificity = roc2$specificities,
+          sensitivity = roc2$sensitivities,
+          model = "NT-proBNP + covariates",
+          auc = auc2
+        ),
+        tibble(
+          specificity = roc3$specificities,
+          sensitivity = roc3$sensitivities,
+          model = "Combined + covariates",
+          auc = auc3
+        )
+      )
+
+      # Create plot
+      p <- ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = model)) +
+        geom_line(size = 1.2) +
+        geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+        scale_color_manual(values = c("NT-proBNP + covariates" = "#d62728", "Combined + covariates" = "#1f77b4")) +
+        labs(
+          title = convert_mir_name_V(mir_name), # paste("Gray Zone ROC Curves:", convert_mir_name_V(mir_name)),
+          subtitle = element_blank(), # paste(disease_name, "patients with NT-proBNP < median (n =", nrow(gray_glm_data), ")"),
+          x = "1 - Specificity",
+          y = "Sensitivity",
+          color = "Model"
+        ) +
+        theme_minimal(base_size = 14) +
+        theme(
+          legend.position = "none",
+          panel.grid.minor = element_blank()
+        ) +
+        coord_equal() +
+        annotate("text",
+          x = 0.6, y = 0.4,
+          label = paste0("NT-proBNP AUC: ", round(auc2, 3)),
+          hjust = 0, size = 3.5, color = "#d62728"
+        ) +
+        annotate("text",
+          x = 0.6, y = 0.35,
+          label = paste0("Combined AUC: ", round(auc3, 3)),
+          hjust = 0, size = 3.5, color = "#1f77b4"
+        ) +
+        annotate("text",
+          x = 0.6, y = 0.25,
+          label = paste0(
+            "Δ AUC: ", round(auc3 - auc2, 3),
+            "\np = ", ifelse(stat_test_p < 0.001, "<0.001", round(stat_test_p, 3)), ""
+          ),
+          hjust = 0, size = 3.5, color = "black"
+        )
+
+      plot_list[[mir_name]] <- p
+    }
+  }
+
+  # Return single plot or combined plots
+  if (length(plot_list) == 1) {
+    return(plot_list[[1]])
+  } else if (length(plot_list) > 1) {
+    # Combine plots using patchwork
+    library(patchwork)
+    return(wrap_plots(plot_list, ncol = 2))
+  }
+
+  return(NULL)
+}
+```
+
+```{r}
+#| echo: false
+#| label: gray-zone-roc-plots
+#| fig-width: 10
+#| fig-height: 10
+
+# Function to plot ROC curves including ML signature
+plot_gray_zone_roc_with_ml <- function(data, results, disease_name, mirna_names, ml_col = NULL, ml_name = NULL) {
+  plots <- list()
+
+  # Plot regular miRNAs
+  regular_mirnas <- mirna_names[mirna_names != "miRNA Signature (ML)"]
+  if (length(regular_mirnas) > 0) {
+    regular_plot <- plot_gray_zone_roc(data, results, disease_name, regular_mirnas)
+    if (!is.null(regular_plot)) plots <- append(plots, list(regular_plot))
+  }
+
+  # Plot ML signature if requested
+  if ("miRNA Signature (ML)" %in% mirna_names && !is.null(ml_col)) {
+    ml_plot <- plot_gray_zone_roc_ml(data, disease_name, ml_col, ml_name)
+    if (!is.null(ml_plot)) plots <- append(plots, list(ml_plot))
+  }
+
+  # Return combined plots
+  if (length(plots) == 1) {
+    return(plots[[1]])
+  } else if (length(plots) > 1) {
+    library(patchwork)
+    return(wrap_plots(plots, ncol = 2))
+  }
+
+  return(NULL)
+}
+
+# Function to plot ROC for ML signature
+plot_gray_zone_roc_ml <- function(data, disease_name, ml_col, ml_name) {
+  # Use data with actual NT-proBNP measurements only
+  data_original <- data %>% filter(!is.na(ntprobnp))
+
+  # Remove imputed control values
+  imputation_value <- attr(data, "control_imputation_value")
+  if (!is.null(imputation_value)) {
+    data_original <- data_original %>%
+      filter(!(disease == "control" & abs(ntprobnp - imputation_value) < 0.01))
+  }
+
+  # Calculate median for disease group
+  data_disease_only <- data_original %>% filter(disease == disease_name)
+  median_ntprobnp <- median(data_disease_only$ntprobnp, na.rm = TRUE)
+
+  # Gray zone data
+  gray_zone_data <- data_original %>% filter(ntprobnp < median_ntprobnp)
+
+  if (!ml_col %in% names(gray_zone_data)) {
+    return(NULL)
+  }
+
+  gray_glm_data <- gray_zone_data %>%
+    filter(!is.na(.data[[ml_col]]), !is.na(age), !is.na(sex)) %>%
+    mutate(disease_binary = ifelse(disease == disease_name, 1, 0))
+
+  if (nrow(gray_glm_data) < 15) {
+    return(NULL)
+  }
+
+  # Models
+  f2 <- as.formula("disease_binary ~ ntprobnp + age + sex")
+  f3 <- as.formula(paste("disease_binary ~", ml_col, "+ ntprobnp + age + sex"))
+
+  glm2 <- tryCatch(glm(f2, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+  glm3 <- tryCatch(glm(f3, data = gray_glm_data, family = binomial()), error = function(e) NULL)
+
+  if (!is.null(glm2) && !is.null(glm3)) {
+    # Calculate ROCs
+    roc2 <- roc(gray_glm_data$disease_binary, predict(glm2, type = "response"), quiet = TRUE)
+    roc3 <- roc(gray_glm_data$disease_binary, predict(glm3, type = "response"), quiet = TRUE)
+
+    auc2 <- as.numeric(roc2$auc)
+    auc3 <- as.numeric(roc3$auc)
+    stat_test_p <- anova(glm2, glm3, test = "Chisq")$`Pr(>Chi)`[2]
+
+    # Create ROC data
+    roc_data <- bind_rows(
+      tibble(
+        specificity = roc2$specificities,
+        sensitivity = roc2$sensitivities,
+        model = "NT-proBNP + covariates",
+        auc = auc2
+      ),
+      tibble(
+        specificity = roc3$specificities,
+        sensitivity = roc3$sensitivities,
+        model = "Combined + covariates",
+        auc = auc3
+      )
+    )
+
+    # Create plot
+    p <- ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = model)) +
+      geom_line(size = 1.2) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+      scale_color_manual(values = c("NT-proBNP + covariates" = "#d62728", "Combined + covariates" = "#1f77b4")) +
+      labs(
+        title = ml_name,
+        x = "1 - Specificity",
+        y = "Sensitivity",
+        color = "Model"
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(
+        legend.position = "none",
+        panel.grid.minor = element_blank()
+      ) +
+      coord_equal() +
+      annotate("text",
+        x = 0.6, y = 0.4,
+        label = paste0("NT-proBNP AUC: ", round(auc2, 3)),
+        hjust = 0, size = 3.5, color = "#d62728"
+      ) +
+      annotate("text",
+        x = 0.6, y = 0.35,
+        label = paste0("Combined AUC: ", round(auc3, 3)),
+        hjust = 0, size = 3.5, color = "#1f77b4"
+      ) +
+      annotate("text",
+        x = 0.6, y = 0.25,
+        label = paste0(
+          "Δ AUC: ", round(auc3 - auc2, 3),
+          "\np = ", ifelse(stat_test_p < 0.001, "<0.001", round(stat_test_p, 3))
+        ),
+        hjust = 0, size = 3.5, color = "black"
+      )
+
+    return(p)
+  }
+
+  return(NULL)
+}
+
+# Plot ROC curves for top miRNAs including ML signature
+if (nrow(dcm_gray) > 0) {
+  top_dcm_mirnas <- dcm_gray$miRNA[1:min(4, nrow(dcm_gray))]
+  dcm_roc_plot <- plot_gray_zone_roc_with_ml(dcm_cleaned$full_data, dcm_results, "dcm", top_dcm_mirnas, "ml_signature_dcm", "miRNA Signature (ML)")
+  print(dcm_roc_plot)
+}
+
+if (nrow(hfref_gray) > 0) {
+  top_hfref_mirnas <- hfref_gray$miRNA[1:min(4, nrow(hfref_gray))]
+  hfref_roc_plot <- plot_gray_zone_roc_with_ml(hfref_cleaned$full_data, hfref_results, "hfref", top_hfref_mirnas, "ml_signature_hfref", "miRNA Signature (ML)")
+  print(hfref_roc_plot)
+}
+```
+
+```{r}
+#| echo: false
+#| label: gray-zone-results
+
+if (nrow(dcm_gray) > 0) {
+  dcm_gray_display <- dcm_gray %>%
+    mutate(
+      miRNA = ifelse(miRNA == "miRNA Signature (ML)", miRNA, convert_mir_name_V(miRNA)),
+      across(contains("auc"), ~ round(.x, 3)),
+      incremental_benefit = round(incremental_benefit, 3),
+      statistical_test_p = round(statistical_test_p, 3),
+      median_ntprobnp_threshold = round(median_ntprobnp_threshold, 0)
+    ) %>%
+    select(
+      miRNA, auc_mirna_model, auc_ntprobnp_model, auc_combined_model,
+      incremental_benefit, statistical_test_p, n_gray_zone, median_ntprobnp_threshold
+    )
+
+  kable(dcm_gray_display,
+    col.names = c(
+      "miRNA", "miRNA AUC", "NT-proBNP AUC", "Combined AUC",
+      "Incremental Δ", "p-value", "N (Gray Zone)", "Threshold (pg/mL)"
+    ),
+    caption = "DCM Gray Zone Analysis: Performance in patients with NT-proBNP below median",
+    format = "html"
+  ) %>%
+    kable_styling(bootstrap_options = c("striped", "hover")) %>%
+    column_spec(1, bold = TRUE) %>%
+    add_header_above(c(" " = 1, "Model Performance" = 5, "Sample Size" = 2))
+}
+
+if (nrow(hfref_gray) > 0) {
+  hfref_gray_display <- hfref_gray %>%
+    mutate(
+      miRNA = ifelse(miRNA == "miRNA Signature (ML)", miRNA, convert_mir_name_V(miRNA)),
+      across(contains("auc"), ~ round(.x, 3)),
+      incremental_benefit = round(incremental_benefit, 3),
+      statistical_test_p = round(statistical_test_p, 3),
+      median_ntprobnp_threshold = round(median_ntprobnp_threshold, 0)
+    ) %>%
+    select(
+      miRNA, auc_mirna_model, auc_ntprobnp_model, auc_combined_model,
+      incremental_benefit, statistical_test_p, n_gray_zone, median_ntprobnp_threshold
+    )
+
+  kable(hfref_gray_display,
+    col.names = c(
+      "miRNA", "miRNA AUC", "NT-proBNP AUC", "Combined AUC",
+      "Incremental Δ", "p-value", "N (Gray Zone)", "Threshold (pg/mL)"
+    ),
+    caption = "HFrEF Gray Zone Analysis: Performance in patients with NT-proBNP below median",
+    format = "html"
+  ) %>%
+    kable_styling(bootstrap_options = c("striped", "hover")) %>%
+    column_spec(1, bold = TRUE) %>%
+    add_header_above(c(" " = 1, "Model Performance" = 5, "Sample Size" = 2))
+}
+```
+
+The gray zone analysis reveals that miRNAs provide particularly valuable diagnostic information in patients with NT-proBNP levels below the disease-specific median, where traditional biomarker performance may be suboptimal.
+
+
+# Reclassification Analysis 
+
+```{r}
+#| label: reclassification-analysis-clinical-thresholds
+
+reclassification_analysis <- function(data, results, disease_name) {
+  # Use data with actual NT-proBNP measurements only
+  data_original <- data %>%
+    filter(!is.na(ntprobnp))
+
+  # Remove imputed control values using the stored imputation value
+  imputation_value <- attr(data, "control_imputation_value")
+  if (!is.null(imputation_value)) {
+    data_original <- data_original %>%
+      filter(!(disease == "control" & abs(ntprobnp - imputation_value) < 0.01))
+    cat(
+      "Removed imputed control values (",
+      round(imputation_value, 2),
+      " pg/mL)\n"
+    )
+  }
+
+  if (nrow(data_original) < 20) {
+    cat(
+      "Insufficient non-imputed data for reclassification analysis in",
+      disease_name,
+      "\n"
+    )
+    return(list())
+  }
+
+  # Clinical NT-proBNP thresholds
+  rule_out_threshold <- 125 # Rule out HF if < 125 pg/mL
+  rule_in_threshold <- 450 # Rule in HF if > 450 pg/mL
+  # Gray zone: 125-450 pg/mL
+
+  cat("\n=== CLINICAL RECLASSIFICATION ANALYSIS:", disease_name, "===\n")
+  cat("NT-proBNP Clinical Thresholds:\n")
+  cat("  Rule-out (<125 pg/mL): Low probability of HF\n")
+  cat("  Gray zone (125-450 pg/mL): Intermediate probability\n")
+  cat("  Rule-in (>450 pg/mL): High probability of HF\n")
+
+  # Classify patients by NT-proBNP thresholds
+  data_classified <- data_original %>%
+    mutate(
+      ntprobnp_class = case_when(
+        ntprobnp < rule_out_threshold ~ "Rule-out (<125)",
+        ntprobnp >= rule_out_threshold & ntprobnp <= rule_in_threshold ~ "Gray zone (125-450)",
+        ntprobnp > rule_in_threshold ~ "Rule-in (>450)",
+        TRUE ~ NA_character_
+      ),
+      is_case = ifelse(disease == disease_name, 1, 0)
+    )
+
+  # Summary by zones
+  zone_summary <- data_classified %>%
+    group_by(ntprobnp_class) %>%
+    summarise(
+      n_total = n(),
+      n_cases = sum(is_case),
+      n_controls = sum(1 - is_case),
+      case_percentage = round(100 * n_cases / n_total, 1),
+      .groups = "drop"
+    )
+
+  cat("\nPatient distribution by NT-proBNP zones:\n")
+  print(zone_summary)
+
+  # Get top miRNAs for reclassification analysis
+  top_mirnas <- results %>%
+    filter(miRNA != "disease", !is.na(auc_univariate)) %>%
+    slice_max(auc_univariate, n = 3)
+
+  reclassification_results <- list()
+
+  for (i in 1:nrow(top_mirnas)) {
+    mir_name <- top_mirnas$miRNA[i]
+
+    if (!mir_name %in% names(data_classified)) {
+      next
+    }
+
+    # Focus on gray zone patients (most clinically relevant)
+    gray_zone_patients <- data_classified %>%
+      filter(
+        ntprobnp_class == "Gray zone (125-450)",
+        !is.na(.data[[mir_name]]),
+        !is.na(age),
+        !is.na(sex)
+      )
+
+    if (nrow(gray_zone_patients) < 10) {
+      next
+    }
+
+    # Build GLM model for reclassification
+    f_model <- as.formula(paste("is_case ~", mir_name, "+ age + sex"))
+    glm_model <- tryCatch(
+      glm(f_model, data = gray_zone_patients, family = binomial()),
+      error = function(e) NULL
+    )
+
+    if (!is.null(glm_model)) {
+      # Get predicted probabilities
+      gray_zone_patients$pred_prob <- predict(glm_model, type = "response")
+
+      # Define reclassification thresholds based on predicted probability
+      # High confidence: >0.7 probability
+      # Low confidence: <0.3 probability
+      # Intermediate: 0.3-0.7 probability
+
+      gray_zone_reclassified <- gray_zone_patients %>%
+        mutate(
+          mirna_reclass = case_when(
+            pred_prob > 0.7 ~ "High risk (miRNA)",
+            pred_prob < 0.3 ~ "Low risk (miRNA)",
+            TRUE ~ "Intermediate (miRNA)"
+          ),
+          # Create reclassification categories
+          reclass_category = case_when(
+            mirna_reclass == "High risk (miRNA)" & is_case == 1 ~ "Correct rule-in",
+            mirna_reclass == "High risk (miRNA)" & is_case == 0 ~ "Incorrect rule-in",
+            mirna_reclass == "Low risk (miRNA)" & is_case == 0 ~ "Correct rule-out",
+            mirna_reclass == "Low risk (miRNA)" & is_case == 1 ~ "Incorrect rule-out",
+            TRUE ~ "No reclassification"
+          )
+        )
+
+      # Calculate reclassification metrics
+      reclass_summary <- gray_zone_reclassified %>%
+        count(reclass_category) %>%
+        mutate(percentage = round(100 * n / nrow(gray_zone_reclassified), 1))
+
+      # Net Reclassification Improvement (NRI)
+      correct_reclass <- sum(reclass_summary$n[
+        reclass_summary$reclass_category %in%
+          c("Correct rule-in", "Correct rule-out")
+      ])
+      incorrect_reclass <- sum(reclass_summary$n[
+        reclass_summary$reclass_category %in%
+          c("Incorrect rule-in", "Incorrect rule-out")
+      ])
+
+      nri <- (correct_reclass - incorrect_reclass) /
+        nrow(gray_zone_reclassified)
+
+      cat(sprintf(
+        "\n%s Reclassification in Gray Zone (n=%d):\n",
+        mir_name,
+        nrow(gray_zone_reclassified)
+      ))
+      print(reclass_summary)
+      cat(sprintf("Net Reclassification Improvement: %.3f\n", nri))
+
+      reclassification_results[[mir_name]] <- list(
+        data = gray_zone_reclassified,
+        summary = reclass_summary,
+        nri = nri,
+        zone_summary = zone_summary
+      )
+    }
+  }
+
+  return(reclassification_results)
+}
+
+# Run reclassification analysis
+dcm_reclass <- reclassification_analysis(dcm_cleaned$full_data, dcm_results, "dcm")
+hfref_reclass <- reclassification_analysis(hfref_cleaned$full_data, hfref_results, "hfref")
+
+# Function for ML signature reclassification analysis
+reclassification_analysis_ml <- function(data, disease_name, ml_col, ml_name) {
+  # Use data with actual NT-proBNP measurements only
+  data_original <- data %>%
+    filter(!is.na(ntprobnp))
+
+  # Remove imputed control values using the stored imputation value
+  imputation_value <- attr(data, "control_imputation_value")
+  if (!is.null(imputation_value)) {
+    data_original <- data_original %>%
+      filter(!(disease == "control" & abs(ntprobnp - imputation_value) < 0.01))
+  }
+
+  if (nrow(data_original) < 20) {
+    return(list())
+  }
+
+  # Clinical NT-proBNP thresholds
+  rule_out_threshold <- 125
+  rule_in_threshold <- 450
+
+  # Classify patients by NT-proBNP thresholds
+  data_classified <- data_original %>%
+    mutate(
+      ntprobnp_class = case_when(
+        ntprobnp < rule_out_threshold ~ "Rule-out (<125)",
+        ntprobnp >= rule_out_threshold & ntprobnp <= rule_in_threshold ~ "Gray zone (125-450)",
+        ntprobnp > rule_in_threshold ~ "Rule-in (>450)",
+        TRUE ~ NA_character_
+      ),
+      is_case = ifelse(disease == disease_name, 1, 0)
+    )
+
+  # Focus on gray zone patients (most clinically relevant)
+  gray_zone_patients <- data_classified %>%
+    filter(
+      ntprobnp_class == "Gray zone (125-450)",
+      !is.na(.data[[ml_col]]),
+      !is.na(age),
+      !is.na(sex)
+    )
+
+  if (nrow(gray_zone_patients) < 10) {
+    return(list())
+  }
+
+  # Build GLM model for reclassification
+  f_model <- as.formula(paste("is_case ~", ml_col, "+ age + sex"))
+  glm_model <- tryCatch(
+    glm(f_model, data = gray_zone_patients, family = binomial()),
+    error = function(e) NULL
+  )
+
+  if (!is.null(glm_model)) {
+    # Get predicted probabilities
+    gray_zone_patients$pred_prob <- predict(glm_model, type = "response")
+
+    # Define reclassification thresholds based on predicted probability
+    gray_zone_reclassified <- gray_zone_patients %>%
+      mutate(
+        mirna_reclass = case_when(
+          pred_prob > 0.7 ~ "High risk (ML signature)",
+          pred_prob < 0.3 ~ "Low risk (ML signature)",
+          TRUE ~ "Intermediate (ML signature)"
+        ),
+        # Create reclassification categories
+        reclass_category = case_when(
+          mirna_reclass == "High risk (ML signature)" & is_case == 1 ~ "Correct rule-in",
+          mirna_reclass == "High risk (ML signature)" & is_case == 0 ~ "Incorrect rule-in",
+          mirna_reclass == "Low risk (ML signature)" & is_case == 0 ~ "Correct rule-out",
+          mirna_reclass == "Low risk (ML signature)" & is_case == 1 ~ "Incorrect rule-out",
+          TRUE ~ "No reclassification"
+        )
+      )
+
+    # Calculate reclassification metrics
+    reclass_summary <- gray_zone_reclassified %>%
+      count(reclass_category) %>%
+      mutate(percentage = round(100 * n / nrow(gray_zone_reclassified), 1))
+
+    # Net Reclassification Improvement (NRI)
+    correct_reclass <- sum(reclass_summary$n[
+      reclass_summary$reclass_category %in%
+        c("Correct rule-in", "Correct rule-out")
+    ])
+    incorrect_reclass <- sum(reclass_summary$n[
+      reclass_summary$reclass_category %in%
+        c("Incorrect rule-in", "Incorrect rule-out")
+    ])
+
+    nri <- (correct_reclass - incorrect_reclass) /
+      nrow(gray_zone_reclassified)
+
+    cat(sprintf(
+      "\n%s Reclassification in Gray Zone (n=%d):\n",
+      ml_name,
+      nrow(gray_zone_reclassified)
+    ))
+    print(reclass_summary)
+    cat(sprintf("Net Reclassification Improvement: %.3f\n", nri))
+
+    return(list(
+      data = gray_zone_reclassified,
+      summary = reclass_summary,
+      nri = nri
+    ))
+  }
+
+  return(list())
+}
+
+# Add ML signature reclassification analysis
+if (!is.null(dcm_ml_performance) && "ml_signature_dcm" %in% names(dcm_cleaned$full_data)) {
+  dcm_ml_reclass <- reclassification_analysis_ml(dcm_cleaned$full_data, "dcm", "ml_signature_dcm", "miRNA Signature")
+  if (length(dcm_ml_reclass) > 0) {
+    dcm_reclass[["miRNA Signature"]] <- dcm_ml_reclass
+  }
+}
+
+if (!is.null(hfref_ml_performance) && "ml_signature_hfref" %in% names(hfref_cleaned$full_data)) {
+  hfref_ml_reclass <- reclassification_analysis_ml(hfref_cleaned$full_data, "hfref", "ml_signature_hfref", "miRNA Signature")
+  if (length(hfref_ml_reclass) > 0) {
+    hfref_reclass[["miRNA Signature"]] <- hfref_ml_reclass
+  }
+}
+```
+
+```{r}
+#| label: reclassification_percentage_plot
+
+plot_reclassification_percentage <- function(reclass_result, mirna_names, disease_name) {
+  # Handle both single miRNA and vector of miRNAs
+  if (is.character(mirna_names) && length(mirna_names) == 1) {
+    mirna_names <- mirna_names
+  }
+
+  # Reorder to put miRNA Signature first if it exists
+  if ("miRNA Signature" %in% mirna_names) {
+    mirna_names <- c("miRNA Signature", mirna_names[mirna_names != "miRNA Signature"])
+  }
+
+  # Prepare data for all requested miRNAs
+  plot_data_list <- list()
+
+  for (mirna_name in mirna_names) {
+    if (is.null(reclass_result[[mirna_name]])) {
+      cat("No reclassification data for", mirna_name, "\n")
+      next
+    }
+
+    summary_data <- reclass_result[[mirna_name]]$summary
+
+    # Combine incorrect categories and calculate percentages
+    mirna_data <- summary_data %>%
+      mutate(
+        category_clean = case_when(
+          reclass_category == "Correct rule-in" ~ "Correct RI",
+          reclass_category == "Correct rule-out" ~ "Correct RO",
+          reclass_category == "No reclassification" ~ "No Reclassification",
+          reclass_category %in% c("Incorrect rule-in", "Incorrect rule-out") ~ "Incorrect Reclassification"
+        )
+      ) %>%
+      group_by(category_clean) %>%
+      summarise(n = sum(n), .groups = "drop") %>%
+      mutate(
+        percentage = round(100 * n / sum(n), 1),
+        mirna = ifelse(mirna_name == "miRNA Signature", "miRNA Signature", convert_mir_name_V(mirna_name)),
+        total_n = sum(n)
+      )
+
+    plot_data_list[[mirna_name]] <- mirna_data
+  }
+
+  # Combine all data
+  plot_data <- bind_rows(plot_data_list) %>%
+    mutate(
+      category_clean = factor(category_clean,
+        levels = c("Incorrect Reclassification", "Correct RO", "No Reclassification", "Correct RI")
+      ),
+      mirna = factor(mirna, levels = ifelse(mirna_names == "miRNA Signature", "miRNA Signature", convert_mir_name_V(mirna_names)))
+    )
+
+  # Choose appropriate plot based on number of miRNAs
+  if (length(mirna_names) == 1) {
+    # Single miRNA - horizontal bars with category colors
+    ggplot(plot_data, aes(x = percentage, y = category_clean, fill = category_clean)) +
+      geom_col(width = 0.7) +
+      geom_text(aes(label = paste0(percentage, "% (n=", n, ")")),
+        hjust = -0.1, size = 3.5
+      ) +
+      scale_fill_manual(values = c(
+        "Correct RI" = "#1f77b4", # Blue
+        "Correct RO" = "#2ca02c", # Green
+        "No Reclassification" = "#d3d3d3", # Light gray
+        "Incorrect Reclassification" = "#ff7f0e" # Orange
+      )) +
+      scale_x_continuous(limits = c(0, max(plot_data$percentage) * 1.3)) +
+      scale_y_continuous(
+        limits = c(0, max(plot_data$percentage) * 1.15),
+        breaks = seq(0, ceiling(max(plot_data$percentage) / 20) * 20, by = 20),
+        labels = scales::label_percent(accuracy = 1, scale = 1)
+      ) +
+      labs(
+        title = paste("Reclassification Impact:", unique(plot_data$mirna)),
+        subtitle = paste(disease_name, "patients (n =", unique(plot_data$total_n), ")"),
+        x = "Percentage of Patients",
+        y = ""
+      ) +
+      theme_minimal(base_size = 16) +
+      theme(
+        legend.position = "none",
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank()
+      )
+  } else {
+    # Multiple miRNAs - dodged bars with miRNA colors matching ROC plot
+
+    # Create color mapping consistent with ROC plot
+    mirna_levels <- levels(plot_data$mirna)
+    colors <- character()
+    mirna_color_palette <- c("#33A02C", "#FF7F00", "#6A3D9A") # Same as ROC plot
+
+    for (i in seq_along(mirna_levels)) {
+      if (mirna_levels[i] == "miRNA Signature") {
+        colors[mirna_levels[i]] <- "#1F78B4" # Dark blue for signature
+      } else {
+        # Assign colors to individual miRNAs
+        mirna_idx <- sum(mirna_levels[1:(i - 1)] != "miRNA Signature") + 1
+        colors[mirna_levels[i]] <- mirna_color_palette[((mirna_idx - 1) %% length(mirna_color_palette)) + 1]
+      }
+    }
+
+    ggplot(plot_data, aes(x = category_clean, y = percentage, fill = mirna)) +
+      geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+      geom_text(aes(label = paste0(percentage, "%")),
+        position = position_dodge(width = 0.8),
+        hjust = -0.1, size = 3, angle = 0
+      ) +
+      scale_y_continuous(
+        limits = c(0, max(plot_data$percentage) * 1.15),
+        breaks = seq(0, ceiling(max(plot_data$percentage) / 20) * 20, by = 20),
+        labels = scales::label_percent(accuracy = 1, scale = 1)
+      ) +
+      scale_fill_manual(values = colors) +
+      # wrap legend rows
+      guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+      labs(
+        title = "",
+        subtitle = paste(disease_name, "patients"),
+        x = "",
+        y = "",
+        fill = "miRNA"
+      ) +
+      theme_minimal(base_size = 16) +
+      theme(
+        legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.box = "horizontal",
+        legend.text = element_text(size = 11),
+        legend.key.width = unit(14, "pt"),
+        legend.key.height = unit(12, "pt"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.margin = margin(t = 10, r = 30, b = 10, l = 10)
+      ) +
+      coord_flip(clip = "off")
+  }
+}
+
+p1 <- plot_reclassification_percentage(dcm_reclass, names(dcm_reclass), "DCM")
+p2 <- plot_reclassification_percentage(hfref_reclass, names(hfref_reclass), "ICM")
+```
+
+## Reclassification Impact Comparison Plot
+
+```{r}
+#| label: reclassification-plots-print1
+#| fig-width: 8
+#| fig-height: 5
+
+p1
+ggsave("revision2025/figures/reclassification_dcm_plot.png", p1, width = 8, height = 5, dpi = 300)
+```
+
+```{r}
+#| label: reclassification-plots-print2
+#| fig-width: 8
+#| fig-height: 5
+
+p2
+ggsave("revision2025/figures/reclassification_icm_plot.png", p2, width = 8, height = 5, dpi = 300)
+```
+
+# Summary ROC Plots
+
+```{r}
+#| label: summary-roc-plots-fn
+
+# Simple function to create ROC plot with top miRNAs + ML signature (Gray Zone)
+create_summary_roc <- function(data_full, results, ml_performance, disease_name, ml_col, title, show_ci = FALSE) {
+  # Use data with actual NT-proBNP measurements only
+  data_original <- data_full %>% filter(!is.na(ntprobnp))
+
+  # Remove imputed control values
+  imputation_value <- attr(data_full, "control_imputation_value")
+  if (!is.null(imputation_value)) {
+    data_original <- data_original %>%
+      filter(!(disease == "control" & abs(ntprobnp - imputation_value) < 0.01))
+  }
+
+  # Calculate median for disease group (Gray Zone = below median)
+  data_disease_only <- data_original %>% filter(disease == disease_name)
+  median_ntprobnp <- median(data_disease_only$ntprobnp, na.rm = TRUE)
+
+  # Gray zone data
+  data_roc <- data_original %>%
+    filter(ntprobnp < median_ntprobnp, !is.na(age), !is.na(sex)) %>%
+    mutate(disease_binary = ifelse(disease == disease_name, 1, 0))
+
+  # Get top 3 miRNAs
+  top_mirnas <- results %>%
+    filter(!is.na(auc_univariate) & miRNA != "disease") %>%
+    slice_max(auc_univariate, n = 3)
+
+  roc_data_list <- list()
+
+  # NT-proBNP baseline
+  glm_nt <- glm(disease_binary ~ ntprobnp + age + sex, data = data_roc, family = binomial())
+  roc_nt <- roc(data_roc$disease_binary, predict(glm_nt, type = "response"), quiet = TRUE)
+  roc_data_list[["NT-proBNP + covariates"]] <- tibble(
+    specificity = roc_nt$specificities,
+    sensitivity = roc_nt$sensitivities,
+    biomarker = paste0("NT-proBNP (AUC: ", sprintf("%.3f", as.numeric(roc_nt$auc)), ")")
+  )
+
+  # Store ROC objects for CI calculation
+  roc_objects <- list()
+  roc_objects[["NT-proBNP + covariates"]] <- roc_nt
+
+  # Top 3 miRNAs (combined with NT-proBNP)
+  for (i in 1:nrow(top_mirnas)) {
+    mir_name <- top_mirnas$miRNA[i]
+    if (mir_name %in% names(data_roc)) {
+      data_complete <- data_roc[!is.na(data_roc[[mir_name]]), ]
+      glm_combined <- glm(as.formula(paste("disease_binary ~", mir_name, "+ ntprobnp + age + sex")),
+        data = data_complete, family = binomial()
+      )
+      roc_combined <- roc(data_complete$disease_binary, predict(glm_combined, type = "response"), quiet = TRUE)
+      roc_data_list[[paste("Combined +", convert_mir_name_V(mir_name))]] <- tibble(
+        specificity = roc_combined$specificities,
+        sensitivity = roc_combined$sensitivities,
+        biomarker = paste0(convert_mir_name_V(mir_name), " (AUC: ", sprintf("%.3f", as.numeric(roc_combined$auc)), ")")
+      )
+    }
+  }
+
+  # ML signature (combined with NT-proBNP)
+  if (!is.null(ml_performance) && ml_col %in% names(data_roc)) {
+    data_ml <- data_roc[!is.na(data_roc[[ml_col]]), ]
+    glm_combined_ml <- glm(as.formula(paste("disease_binary ~", ml_col, "+ ntprobnp + age + sex")),
+      data = data_ml, family = binomial()
+    )
+    roc_combined_ml <- roc(data_ml$disease_binary, predict(glm_combined_ml, type = "response"), quiet = TRUE)
+    roc_data_list[["Combined + ML Signature"]] <- tibble(
+      specificity = roc_combined_ml$specificities,
+      sensitivity = roc_combined_ml$sensitivities,
+      biomarker = paste0("miRNA Signature (AUC: ", sprintf("%.3f", as.numeric(roc_combined_ml$auc)), ")")
+    )
+    # Store ROC object for CI calculation
+    roc_objects[["Combined + ML Signature"]] <- roc_combined_ml
+  }
+
+  combined_roc <- bind_rows(roc_data_list)
+
+  # Create alpha and size mappings for highlighting
+  combined_roc <- combined_roc %>%
+    mutate(
+      curve_type = case_when(
+        grepl("NT-proBNP", biomarker) ~ "reference",
+        grepl("miRNA Signature", biomarker) ~ "signature",
+        TRUE ~ "individual_mirna"
+      ),
+      alpha_val = case_when(
+        curve_type == "reference" ~ 1.0,
+        curve_type == "signature" ~ 1.0,
+        TRUE ~ 0.6
+      ),
+      size_val = case_when(
+        curve_type == "reference" ~ 1.5,
+        curve_type == "signature" ~ 1.5,
+        TRUE ~ 1.0
+      )
+    )
+
+  # Reorder biomarkers: signature first, then miRNAs, then NT-proBNP (reference) last
+  biomarker_order <- c(
+    combined_roc$biomarker[combined_roc$curve_type == "signature"],
+    combined_roc$biomarker[combined_roc$curve_type == "individual_mirna"],
+    combined_roc$biomarker[combined_roc$curve_type == "reference"]
+  )
+  biomarker_order <- unique(biomarker_order)
+  combined_roc$biomarker <- factor(combined_roc$biomarker, levels = biomarker_order)
+
+  # Colors: signature = dark blue, reference = red, miRNAs = other colors
+  n_mirnas <- sum(combined_roc$curve_type == "individual_mirna")
+
+  # Create color vector based on curve type, not order
+  colors <- character()
+  for (biomarker in biomarker_order) {
+    curve_type <- unique(combined_roc$curve_type[combined_roc$biomarker == biomarker])
+    if (curve_type == "signature") {
+      colors[biomarker] <- "#1F78B4" # dark blue for signature
+    } else if (curve_type == "reference") {
+      colors[biomarker] <- "#E31A1C" # red for reference
+    } else if (curve_type == "individual_mirna") {
+      # Assign colors to miRNAs in order they appear
+      mirna_colors <- c("#33A02C", "#FF7F00", "#6A3D9A")
+      mirna_idx <- sum(names(colors) %in% combined_roc$biomarker[combined_roc$curve_type == "individual_mirna"]) + 1
+      colors[biomarker] <- mirna_colors[((mirna_idx - 1) %% length(mirna_colors)) + 1]
+    }
+  }
+
+  ggplot(combined_roc, aes(x = 1 - specificity, y = sensitivity, color = biomarker)) +
+    geom_line(aes(alpha = I(alpha_val), size = I(size_val))) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50", alpha = 0.7) +
+    scale_color_manual(values = colors) +
+    labs(title = title, x = "1 - Specificity", y = "Sensitivity", color = "Biomarker") +
+    theme_minimal(base_size = 16) +
+    theme(
+      legend.title = element_blank(),
+      legend.position = "right"
+    ) +
+    coord_equal() +
+    guides(color = guide_legend(override.aes = list(alpha = 1, size = 1.2)))
+}
+
+# DCM Gray Zone ROC
+roc_dcm <- create_summary_roc(dcm_cleaned$full_data, dcm_results, dcm_ml_performance,
+  "dcm", "ml_signature_dcm",
+  title = ""
+)
+
+# HFrEF Gray Zone ROC
+roc_hfref <- create_summary_roc(hfref_cleaned$full_data, hfref_results, hfref_ml_performance,
+  "hfref", "ml_signature_hfref",
+  title = ""
+)
+```
+
+```{r}
+#| label: summary-roc-plots-dcm
+#| fig-width: 10
+#| fig-height: 6
+
+roc_dcm
+ggsave("revision2025/figures/roc_dcm_gray_zone.png", roc_dcm, width = 10, height = 6, dpi = 300)
+```
+
+
+```{r}
+#| label: summary-roc-plots-hfref
+#| fig-width: 10
+#| fig-height: 6
+
+roc_hfref
+ggsave("revision2025/figures/roc_hfref_gray_zone.png", roc_hfref, width = 10, height = 6, dpi = 300)
+```
+
+
+# Conclusions
+
+This analysis demonstrates that miRNAs represent promising complementary biomarkers to NT-proBNP in cardiovascular disease diagnosis. Key findings include:
+
+1. **Diagnostic Equivalence**: Top individual miRNAs achieve diagnostic accuracy comparable to NT-proBNP in both DCM and HFrEF
+2. **ML Signature Performance**: The machine learning-derived miRNA signature shows enhanced diagnostic performance compared to individual miRNAs, potentially offering superior clinical utility
+3. **Incremental Benefit**: Both individual miRNAs and the ML signature provide consistent diagnostic improvement when combined with NT-proBNP
+4. **Clinical Utility**: miRNAs and ML signatures show particular value in diagnostically challenging scenarios (gray zone patients)
+5. **Reclassification Potential**: The ML signature demonstrates substantial patient reclassification capability in the NT-proBNP gray zone
+6. **Translation Potential**: Performance characteristics support clinical development of both individual miRNA biomarkers and multi-miRNA signature assays
+
+These results provide a strong foundation for advancing miRNA biomarkers toward clinical implementation in cardiovascular disease diagnosis, with the ML-derived multi-miRNA signature showing particularly promising performance characteristics as part of multi-biomarker diagnostic strategies.
+
+```{r save-results}
+#| include: false
+
+# Save key results for downstream analyses
+write_csv(dcm_results, "output/dcm_mirna_ntprobnp_results.csv")
+write_csv(hfref_results, "output/hfref_mirna_ntprobnp_results.csv")
+
+# Save ML signature performance
+if (!is.null(dcm_ml_performance)) {
+  write_csv(dcm_ml_performance, "output/dcm_ml_signature_performance.csv")
+}
+if (!is.null(hfref_ml_performance)) {
+  write_csv(hfref_ml_performance, "output/hfref_ml_signature_performance.csv")
+}
+
+# Save gray zone analysis (including ML signatures)
+if (nrow(dcm_gray) > 0) {
+  write_csv(dcm_gray, "output/dcm_gray_zone_analysis.csv")
+}
+if (nrow(hfref_gray) > 0) {
+  write_csv(hfref_gray, "output/hfref_gray_zone_analysis.csv")
+}
+
+# Save reclassification results (including ML signatures)
+if (length(dcm_reclass) > 0) {
+  # Create summary of all reclassification results
+  dcm_reclass_summary <- map_dfr(names(dcm_reclass), function(mir_name) {
+    if (!is.null(dcm_reclass[[mir_name]]$nri)) {
+      tibble(
+        miRNA = mir_name,
+        nri = dcm_reclass[[mir_name]]$nri,
+        n_gray_zone = nrow(dcm_reclass[[mir_name]]$data)
+      )
+    }
+  })
+  if (nrow(dcm_reclass_summary) > 0) {
+    write_csv(dcm_reclass_summary, "output/dcm_reclassification_summary.csv")
+  }
+}
+
+if (length(hfref_reclass) > 0) {
+  # Create summary of all reclassification results
+  hfref_reclass_summary <- map_dfr(names(hfref_reclass), function(mir_name) {
+    if (!is.null(hfref_reclass[[mir_name]]$nri)) {
+      tibble(
+        miRNA = mir_name,
+        nri = hfref_reclass[[mir_name]]$nri,
+        n_gray_zone = nrow(hfref_reclass[[mir_name]]$data)
+      )
+    }
+  })
+  if (nrow(hfref_reclass_summary) > 0) {
+    write_csv(hfref_reclass_summary, "output/hfref_reclassification_summary.csv")
+  }
+}
+
+cat("Analysis complete. Results saved to output/ directory.\n")
+cat("ML signature integration completed successfully.\n")
+```
+
+---
+
+*Analysis conducted using R `r R.version.string` with miRNA expression data from the BestAgeing study. For questions regarding methodology or data access, please contact the study investigators.*
