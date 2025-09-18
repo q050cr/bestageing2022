@@ -1309,7 +1309,6 @@ if (nrow(dcm_gray) > 0) {
   dcm_roc_plot <- plot_gray_zone_roc_with_ml(dcm_cleaned$full_data, dcm_results, "dcm", top_dcm_mirnas, "ml_signature_dcm", "miRNA Signature (ML)")
   print(dcm_roc_plot)
 }
-Heureca1creich
 
 if (nrow(hfref_gray) > 0) {
   top_hfref_mirnas <- hfref_gray$miRNA[1:min(4, nrow(hfref_gray))]
