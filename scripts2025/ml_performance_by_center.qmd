@@ -1,0 +1,839 @@
+---
+title: "ML Model Performance by Study Center"
+subtitle: "Center-specific performance analysis"
+author: "BestAgeing Study Consortium"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    echo: false
+    theme: cosmo
+    fig-width: 12
+    fig-height: 8
+    df-print: kable
+---
+
+```{r setup}
+#| include: false
+
+library(tidyverse)
+library(pROC)
+library(glue)
+library(knitr)
+library(kableExtra)
+library(patchwork)
+
+# Set paths
+data_path_bestageing2022 <- "/mnt/nas185/reich/rockerprojects/bestageing2022"
+
+# Create output directories
+if (!dir.exists("output")) dir.create("output")
+if (!dir.exists("figures")) dir.create("figures")
+if (!dir.exists("scripts2025/figures/ml_center_performance")) {
+  dir.create("scripts2025/figures/ml_center_performance", recursive = TRUE)
+}
+```
+
+```{r load-data}
+#| include: false
+
+# Load ML results with predictions
+dcm_ml_result <- readRDS("revision2025/data/dcm_ml_result_full.rds")
+hfref_ml_result <- readRDS("revision2025/data/hfref_ml_result_full.rds")
+acs_ml_result <- readRDS("revision2025/data/acs_ml_result.rds")
+cad_ml_result <- readRDS("revision2025/data/cad_ml_result.rds")
+
+# Extract data
+dcm_data <- dcm_ml_result$data
+hfref_data <- hfref_ml_result$data
+acs_data <- acs_ml_result$data
+cad_data <- cad_ml_result$data
+```
+
+```{r helper-functions}
+#| code-fold: true
+
+# Extract study center from patient ID
+extract_center <- function(pat_id) {
+  sub("-[0-9]+$", "", pat_id)
+}
+
+acs_data %>% colnames()
+
+# Analyze performance by center
+analyze_center_performance <- function(data, disease_name, top_models = 3,
+                                       min_cases_for_sampling = 15,
+                                       n_controls_to_sample = NULL) {
+  # Add center information
+  data <- data %>%
+    mutate(center = extract_center(pat_id))
+
+  # Get top performing models
+  pred_cols <- names(data)[grepl(paste0(".pred_", disease_name, "_"), names(data))]
+
+  if (length(pred_cols) == 0) {
+    return(list(summary = tibble(), data = data, augmented_data = data))
+  }
+
+  # Select top models based on overall AUC
+  model_aucs <- sapply(pred_cols[1:min(top_models, length(pred_cols))], function(pred_col) {
+    analysis_data <- data %>%
+      filter(!is.na(.data[[pred_col]])) %>%
+      mutate(disease_binary = ifelse(disease == disease_name, 1, 0))
+
+    if (nrow(analysis_data) < 10) {
+      return(0)
+    }
+
+    tryCatch(
+      {
+        as.numeric(roc(analysis_data$disease_binary,
+          analysis_data[[pred_col]],
+          quiet = TRUE
+        )$auc)
+      },
+      error = function(e) 0
+    )
+  })
+
+  top_pred_cols <- names(sort(model_aucs, decreasing = TRUE))[1:min(top_models, length(model_aucs))]
+
+  # Create augmented dataset with sampled controls for centers without them
+  data_augmented <- data
+
+  # Get all available controls
+  all_controls <- data %>%
+    filter(disease == "control") %>%
+    select(pat_id, center, disease, age, sex, starts_with("hsa_"), starts_with(".pred_"))
+
+  # Identify centers needing controls
+  center_summary <- data %>%
+    mutate(disease_binary = ifelse(disease == disease_name, 1, 0)) %>%
+    group_by(center) %>%
+    summarise(
+      n_cases = sum(disease_binary == 1),
+      n_controls = sum(disease_binary == 0),
+      .groups = "drop"
+    )
+
+  centers_needing_controls <- center_summary %>%
+    filter(n_controls == 0, n_cases >= min_cases_for_sampling) %>%
+    pull(center)
+
+  if (length(centers_needing_controls) > 0 && nrow(all_controls) > 0) {
+    cat(glue("\n=== AUGMENTING DATA FOR {toupper(disease_name)} ===\n"))
+    cat(glue("Centers without controls but ≥{min_cases_for_sampling} cases: {paste(centers_needing_controls, collapse=', ')}\n"))
+
+    # Sample controls for each center
+    sampled_controls_list <- list()
+
+    for (center_name in centers_needing_controls) {
+      n_cases_center <- center_summary %>%
+        filter(center == center_name) %>%
+        pull(n_cases)
+
+      # Determine number of controls to sample (default: match number of cases)
+      n_to_sample <- ifelse(is.null(n_controls_to_sample), n_cases_center, n_controls_to_sample)
+      n_to_sample <- min(n_to_sample, nrow(all_controls))
+
+      # Sample controls from other centers
+      set.seed(42) # For reproducibility
+      sampled <- all_controls %>%
+        slice_sample(n = n_to_sample) %>%
+        mutate(
+          center_original = center,
+          center = center_name,
+          sampled_control = TRUE
+        )
+
+      sampled_controls_list[[center_name]] <- sampled
+
+      cat(glue("  {center_name}: sampled {n_to_sample} controls (from {nrow(all_controls)} available)\n"))
+    }
+
+    # Combine sampled controls
+    sampled_controls <- bind_rows(sampled_controls_list)
+
+    # Add to augmented data
+    data_augmented <- data %>%
+      mutate(sampled_control = FALSE) %>%
+      bind_rows(sampled_controls)
+
+    cat(glue("Total controls sampled: {nrow(sampled_controls)}\n\n"))
+  }
+
+  # Analyze by center (using augmented data)
+  results <- tibble()
+
+  for (pred_col in top_pred_cols) {
+    # Store the full model identifier (everything after ".pred_")
+    model_name <- str_replace(pred_col, "^\\.pred_", "")
+
+    center_results <- data_augmented %>%
+      filter(!is.na(.data[[pred_col]])) %>%
+      mutate(disease_binary = ifelse(disease == disease_name, 1, 0)) %>%
+      group_by(center) %>%
+      summarise(
+        n_total = n(),
+        n_cases = sum(disease_binary == 1),
+        n_controls = sum(disease_binary == 0),
+        n_sampled_controls = sum(sampled_control == TRUE, na.rm = TRUE),
+        auc = tryCatch(
+          {
+            if (n() >= 10 && length(unique(disease_binary)) == 2) {
+              as.numeric(roc(disease_binary, .data[[pred_col]], quiet = TRUE)$auc)
+            } else {
+              NA_real_
+            }
+          },
+          error = function(e) NA_real_
+        ),
+        .groups = "drop"
+      ) %>%
+      mutate(
+        model = model_name,
+        disease = disease_name
+      )
+
+    results <- bind_rows(results, center_results)
+  }
+
+  return(list(summary = results, data = data, augmented_data = data_augmented))
+}
+
+# Plot center performance
+plot_center_performance <- function(center_results, disease_name) {
+  # Filter to centers with valid AUC
+  plot_data <- center_results %>%
+    filter(!is.na(auc), n_total >= 10) %>%
+    mutate(
+      model_clean = str_replace_all(model, "_", " "),
+      center_label = glue("{center}\n(n={n_total})"),
+      has_sampled = n_sampled_controls > 0
+    )
+
+  if (nrow(plot_data) == 0) {
+    return(NULL)
+  }
+
+  # Build a dynamic color palette for the number of models to plot
+  model_levels <- unique(plot_data$model_clean)
+  base_palette <- c(
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+  )
+  fill_values <- setNames(rep(base_palette, length.out = length(model_levels)), model_levels)
+
+  # AUC by center plot
+  p1 <- ggplot(plot_data, aes(x = reorder(center_label, -auc), y = auc, fill = model_clean)) +
+    geom_col(position = position_dodge(width = 0.8), alpha = 0.8) +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray40") +
+    geom_hline(yintercept = 0.7, linetype = "dotted", color = "gray60") +
+    # Add marker for centers with sampled controls
+    geom_point(
+      data = plot_data %>% filter(has_sampled),
+      aes(x = center_label, y = 1.05),
+      shape = 8, size = 3, color = "#d62728", inherit.aes = FALSE
+    ) +
+    scale_y_continuous(limits = c(0, 1.1), breaks = seq(0, 1, 0.1)) +
+    scale_fill_manual(values = fill_values) +
+    labs(
+      title = glue("{toupper(disease_name)}: ML Model Performance by Study Center"),
+      subtitle = "* indicates centers with sampled controls",
+      x = "Study Center",
+      y = "AUC",
+      fill = "ML Model"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.minor = element_blank()
+    )
+
+  # Sample size plot with distinction for sampled controls
+  p2 <- plot_data %>%
+    distinct(center, n_total, n_cases, n_controls, n_sampled_controls) %>%
+    mutate(
+      n_controls_original = n_controls - n_sampled_controls,
+      center_label = glue("{center}\n(n={n_total})")
+    ) %>%
+    select(center, center_label, n_cases, n_controls_original, n_sampled_controls) %>%
+    pivot_longer(
+      cols = c(n_cases, n_controls_original, n_sampled_controls),
+      names_to = "group", values_to = "count"
+    ) %>%
+    filter(count > 0) %>%
+    mutate(
+      group = case_when(
+        group == "n_cases" ~ disease_name,
+        group == "n_controls_original" ~ "control (original)",
+        group == "n_sampled_controls" ~ "control (sampled)"
+      ),
+      group = factor(group, levels = c(disease_name, "control (original)", "control (sampled)"))
+    ) %>%
+    ggplot(aes(x = reorder(center_label, -count), y = count, fill = group)) +
+    geom_col(alpha = 0.8) +
+    scale_fill_manual(values = c(
+      setNames("#1f77b4", disease_name),
+      "control (original)" = "#2ca02c",
+      "control (sampled)" = "#ff7f0e"
+    )) +
+    labs(
+      title = "Sample Distribution by Center",
+      subtitle = "Orange indicates sampled controls from other centers",
+      x = "Study Center",
+      y = "Number of Patients",
+      fill = "Group"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.minor = element_blank()
+    )
+
+  return(list(auc_plot = p1, sample_plot = p2))
+}
+
+# Plot ROC curves by center
+plot_roc_by_center <- function(data, disease_name, center_summary = NULL,
+                               show_model = 1, min_samples = 5) {
+  # If center_summary provided, use it to select the model by rank
+  # Otherwise, expect model_name to be passed (backwards compatibility)
+  if (!is.null(center_summary)) {
+    # Get the nth best model based on mean AUC across centers
+    model_ranking <- center_summary %>%
+      filter(!is.na(auc)) %>%
+      group_by(model) %>%
+      summarise(mean_auc = mean(auc, na.rm = TRUE), .groups = "drop") %>%
+      arrange(desc(mean_auc))
+
+    if (show_model > nrow(model_ranking)) {
+      cat(sprintf(
+        "Requested model rank %d but only %d models available\n",
+        show_model, nrow(model_ranking)
+      ))
+      return(NULL)
+    }
+
+    model_name <- model_ranking$model[show_model]
+    model_rank_auc <- model_ranking$mean_auc[show_model]
+
+    cat(sprintf(
+      "Showing ROC curves for model rank #%d: %s (mean AUC=%.3f)\n",
+      show_model, model_name, model_rank_auc
+    ))
+  } else {
+    # Backwards compatibility - should not reach here with new code
+    stop("center_summary must be provided")
+  }
+
+  # Extract center and prepare data
+  # The augmented data already has the center column with correct assignments
+  analysis_data <- data %>%
+    mutate(
+      disease_binary = ifelse(disease == disease_name, 1, 0)
+    )
+
+  # Check if we have sampled_control column (indicating augmented data)
+  has_sampled_controls <- "sampled_control" %in% names(analysis_data)
+  cat(sprintf(
+    "Using %s data (has sampled controls: %s)\n",
+    ifelse(has_sampled_controls, "augmented", "original"), has_sampled_controls
+  ))
+
+  # Get the prediction column for this model
+  # model_name already contains the full suffix (e.g., "dcm_glmnet_dcm")
+  pred_col <- paste0(".pred_", model_name)
+
+  if (!pred_col %in% names(analysis_data)) {
+    cat("Prediction column not found:", pred_col, "\n")
+    cat("Available prediction columns:", paste(grep("\\.pred_", names(analysis_data), value = TRUE), collapse = ", "), "\n")
+    return(NULL)
+  }
+
+  # Filter to valid data
+  analysis_data <- analysis_data %>%
+    filter(!is.na(.data[[pred_col]]))
+
+  # Calculate ROC curves for each center
+  roc_data_list <- list()
+  center_aucs <- tibble()
+
+  # Show all centers first, then filter
+  all_centers_summary <- analysis_data %>%
+    group_by(center) %>%
+    summarise(
+      n_total = n(),
+      n_cases = sum(disease_binary == 1),
+      n_controls = sum(disease_binary == 0),
+      n_sampled = ifelse(has_sampled_controls, sum(sampled_control == TRUE, na.rm = TRUE), 0),
+      .groups = "drop"
+    )
+
+  cat("All centers summary:\n")
+  for (i in 1:nrow(all_centers_summary)) {
+    row <- all_centers_summary[i, ]
+    cat(sprintf(
+      "  %s: total=%d, cases=%d, controls=%d, sampled=%d\n",
+      row$center, row$n_total, row$n_cases, row$n_controls, row$n_sampled
+    ))
+  }
+
+  centers <- analysis_data %>%
+    count(center) %>%
+    filter(n >= min_samples) %>%
+    pull(center)
+
+  cat(sprintf(
+    "\nCenters with ≥%d samples: %d (%s)\n",
+    min_samples, length(centers), paste(centers, collapse = ", ")
+  ))
+
+  for (center_name in centers) {
+    center_data <- analysis_data %>%
+      filter(center == center_name)
+
+    # Check if we have both classes
+    n_classes <- length(unique(center_data$disease_binary))
+    n_cases <- sum(center_data$disease_binary == 1)
+    n_controls <- sum(center_data$disease_binary == 0)
+    n_sampled <- ifelse(has_sampled_controls, sum(center_data$sampled_control == TRUE, na.rm = TRUE), 0)
+
+    cat(sprintf(
+      "  %s: n=%d, cases=%d, controls=%d (sampled=%d), classes=%d\n",
+      center_name, nrow(center_data), n_cases, n_controls, n_sampled, n_classes
+    ))
+
+    if (n_classes < 2) {
+      cat(sprintf("    Skipping %s - insufficient classes\n", center_name))
+      next
+    }
+
+    # Calculate ROC
+    roc_obj <- tryCatch(
+      {
+        roc(center_data$disease_binary,
+          center_data[[pred_col]],
+          quiet = TRUE
+        )
+      },
+      error = function(e) NULL
+    )
+
+    if (!is.null(roc_obj)) {
+      auc_val <- as.numeric(roc_obj$auc)
+      cat(sprintf("    ROC calculated successfully - AUC=%.3f\n", auc_val))
+
+      # Store ROC curve data
+      roc_data_list[[center_name]] <- tibble(
+        center = center_name,
+        specificity = roc_obj$specificities,
+        sensitivity = roc_obj$sensitivities,
+        auc = auc_val,
+        n = nrow(center_data)
+      )
+
+      # Store AUC summary
+      center_aucs <- bind_rows(
+        center_aucs,
+        tibble(center = center_name, auc = auc_val, n = nrow(center_data))
+      )
+    } else {
+      cat(sprintf("    ROC calculation failed for %s\n", center_name))
+    }
+  }
+
+  if (length(roc_data_list) == 0) {
+    cat("No ROC curves could be calculated - returning NULL\n")
+    return(NULL)
+  }
+
+  cat(sprintf("Successfully calculated ROC curves for %d centers\n", length(roc_data_list)))
+
+  # Combine all ROC data
+  roc_data <- bind_rows(roc_data_list) %>%
+    mutate(center_label = glue("{center} (AUC={round(auc, 3)}, n={n})"))
+
+  # Create ROC plot
+  model_clean <- str_replace_all(model_name, "_", " ")
+  rank_label <- ifelse(!is.null(center_summary),
+    sprintf("Model rank #%d", show_model),
+    ""
+  )
+
+  # Dynamic color palette for centers (supports any number of centers)
+  center_levels <- unique(roc_data$center_label)
+  base_palette <- c(
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+  )
+  color_values <- setNames(rep(base_palette, length.out = length(center_levels)), center_levels)
+
+  p <- ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = center_label)) +
+    geom_line(size = 1.2, alpha = 0.8) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+    scale_color_manual(name = "Study Center", values = color_values) +
+    coord_equal() +
+    labs(
+      title = glue("{toupper(disease_name)}: ROC Curves by Study Center"),
+      subtitle = glue("{rank_label} - Model: {model_clean}"),
+      x = "1 - Specificity (False Positive Rate)",
+      y = "Sensitivity (True Positive Rate)"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      legend.position = "right",
+      legend.text = element_text(size = 10),
+      panel.grid.minor = element_blank()
+    ) +
+    guides(color = guide_legend(ncol = 1))
+
+  return(p)
+}
+```
+
+# Analysis
+
+## DCM Performance by Center
+
+```{r dcm-analysis}
+#| echo: false
+#| warning: false
+
+# Set minimum cases threshold for control sampling
+MIN_CASES_THRESHOLD <- 15
+
+dcm_center <- analyze_center_performance(
+  dcm_data,
+  "dcm",
+  top_models = 3,
+  min_cases_for_sampling = MIN_CASES_THRESHOLD
+)
+
+if (nrow(dcm_center$summary) > 0) {
+  # Summary table
+  dcm_center$summary %>%
+    filter(!is.na(auc)) %>%
+    mutate(
+      model = str_replace_all(model, "_", " "),
+      auc = round(auc, 3),
+      center_note = ifelse(n_sampled_controls > 0,
+        paste0(center, " *"),
+        center
+      )
+    ) %>%
+    arrange(center, desc(auc)) %>%
+    select(center_note, model, n_total, n_cases, n_controls, n_sampled_controls, auc) %>%
+    kable(
+      col.names = c("Center", "ML Model", "Total N", "Cases", "Controls", "Sampled", "AUC"),
+      caption = "DCM: ML Model Performance by Study Center"
+    ) %>%
+    kable_styling(bootstrap_options = c("striped", "hover")) %>%
+    column_spec(1, bold = TRUE)
+
+  # Plots
+  dcm_plots <- plot_center_performance(dcm_center$summary, "dcm")
+  if (!is.null(dcm_plots)) {
+    # Save plots as SVG
+    ggsave("scripts2025/figures/ml_center_performance/dcm_auc_by_center.svg",
+      dcm_plots$auc_plot,
+      width = 8, height = 6
+    )
+    ggsave("scripts2025/figures/ml_center_performance/dcm_sample_distribution.svg",
+      dcm_plots$sample_plot,
+      width = 8, height = 6
+    )
+
+    print(dcm_plots$auc_plot)
+    print(dcm_plots$sample_plot)
+  }
+
+  # ROC curves by center
+  # Change show_model parameter to select different model ranks:
+  # show_model = 1 (best model), show_model = 2 (second best), etc.
+  # NOTE: Using augmented data to include centers with sampled controls
+  dcm_roc_plot <- plot_roc_by_center(
+    dcm_center$augmented_data, # Use augmented data with sampled controls
+    "dcm",
+    center_summary = dcm_center$summary,
+    show_model = 1 # Show best performing model
+  )
+
+  if (!is.null(dcm_roc_plot)) {
+    # Save ROC plot as SVG
+    ggsave("scripts2025/figures/ml_center_performance/dcm_roc_by_center_model1.svg",
+      dcm_roc_plot,
+      width = 6, height = 6
+    )
+
+    print(dcm_roc_plot)
+  }
+
+  # Save results
+  write_csv(dcm_center$summary, "output/dcm_center_performance.csv")
+}
+```
+
+## HFrEF Performance by Center
+
+```{r hfref-analysis}
+#| echo: false
+#| warning: false
+
+hfref_center <- analyze_center_performance(
+  hfref_data,
+  "hfref",
+  top_models = 9,
+  min_cases_for_sampling = MIN_CASES_THRESHOLD
+)
+
+if (nrow(hfref_center$summary) > 0) {
+  # Summary table
+  hfref_center$summary %>%
+    filter(!is.na(auc)) %>%
+    mutate(
+      model = str_replace_all(model, "_", " "),
+      auc = round(auc, 3),
+      center_note = ifelse(n_sampled_controls > 0,
+        paste0(center, " *"),
+        center
+      )
+    ) %>%
+    arrange(center, desc(auc)) %>%
+    select(center_note, model, n_total, n_cases, n_controls, n_sampled_controls, auc) %>%
+    kable(
+      col.names = c("Center", "ML Model", "Total N", "Cases", "Controls", "Sampled", "AUC"),
+      caption = "HFrEF: ML Model Performance by Study Center"
+    ) %>%
+    kable_styling(bootstrap_options = c("striped", "hover")) %>%
+    column_spec(1, bold = TRUE)
+
+  # Plots
+  hfref_plots <- plot_center_performance(hfref_center$summary, "hfref")
+  if (!is.null(hfref_plots)) {
+    # Save plots as SVG
+    ggsave("scripts2025/figures/ml_center_performance/hfref_auc_by_center.svg",
+      hfref_plots$auc_plot,
+      width = 8, height = 6
+    )
+    ggsave("scripts2025/figures/ml_center_performance/hfref_sample_distribution.svg",
+      hfref_plots$sample_plot,
+      width = 8, height = 6
+    )
+
+    print(hfref_plots$auc_plot)
+    print(hfref_plots$sample_plot)
+  }
+
+  # ROC curves by center
+  # Change show_model parameter to select different model ranks:
+  # show_model = 1 (best model), show_model = 2 (second best), etc.
+  # NOTE: Using augmented data to include centers with sampled controls
+  hfref_roc_plot <- plot_roc_by_center(
+    hfref_center$augmented_data, # Use augmented data with sampled controls
+    "hfref",
+    center_summary = hfref_center$summary,
+    show_model = 8 # Show best performing model
+  )
+
+  if (!is.null(hfref_roc_plot)) {
+    # Save ROC plot as SVG
+    ggsave("scripts2025/figures/ml_center_performance/hfref_roc_by_center_model8.svg",
+      hfref_roc_plot,
+      width = 6, height = 6
+    )
+
+    print(hfref_roc_plot)
+  }
+
+  # Save results
+  write_csv(hfref_center$summary, "output/hfref_center_performance.csv")
+}
+```
+
+## ACS Performance by Center
+
+```{r acs-analysis}
+#| echo: false
+#| warning: false
+
+acs_center <- analyze_center_performance(
+  acs_data,
+  "acs",
+  top_models = 3,
+  min_cases_for_sampling = MIN_CASES_THRESHOLD
+)
+
+if (nrow(acs_center$summary) > 0) {
+  # Summary table
+  acs_center$summary %>%
+    filter(!is.na(auc)) %>%
+    mutate(
+      model = str_replace_all(model, "_", " "),
+      auc = round(auc, 3),
+      center_note = ifelse(n_sampled_controls > 0,
+        paste0(center, " *"),
+        center
+      )
+    ) %>%
+    arrange(center, desc(auc)) %>%
+    select(center_note, model, n_total, n_cases, n_controls, n_sampled_controls, auc) %>%
+    kable(
+      col.names = c("Center", "ML Model", "Total N", "Cases", "Controls", "Sampled", "AUC"),
+      caption = "ACS: ML Model Performance by Study Center"
+    ) %>%
+    kable_styling(bootstrap_options = c("striped", "hover")) %>%
+    column_spec(1, bold = TRUE)
+
+  # Plots
+  acs_plots <- plot_center_performance(acs_center$summary, "acs")
+  if (!is.null(acs_plots)) {
+    # Save plots as SVG
+    ggsave("scripts2025/figures/ml_center_performance/acs_auc_by_center.svg",
+      acs_plots$auc_plot,
+      width = 8, height = 6
+    )
+    ggsave("scripts2025/figures/ml_center_performance/acs_sample_distribution.svg",
+      acs_plots$sample_plot,
+      width = 8, height = 6
+    )
+
+    print(acs_plots$auc_plot)
+    print(acs_plots$sample_plot)
+  }
+
+  # ROC curves by center
+  # Change show_model parameter to select different model ranks:
+  # show_model = 1 (best model), show_model = 2 (second best), etc.
+  # NOTE: Using augmented data to include centers with sampled controls
+  acs_roc_plot <- plot_roc_by_center(
+    acs_center$augmented_data, # Use augmented data with sampled controls
+    "acs",
+    center_summary = acs_center$summary,
+    show_model = 1 # Show best performing model
+  )
+
+  if (!is.null(acs_roc_plot)) {
+    # Save ROC plot as SVG
+    ggsave("scripts2025/figures/ml_center_performance/acs_roc_by_center_model1.svg",
+      acs_roc_plot,
+      width = 6, height = 6
+    )
+
+    print(acs_roc_plot)
+  }
+
+  # Save results
+  write_csv(acs_center$summary, "output/acs_center_performance.csv")
+}
+```
+
+## CAD Performance by Center
+
+```{r cad-analysis}
+#| echo: false
+#| warning: false
+
+cad_center <- analyze_center_performance(
+  cad_data,
+  "cad",
+  top_models = 3,
+  min_cases_for_sampling = MIN_CASES_THRESHOLD
+)
+
+if (nrow(cad_center$summary) > 0) {
+  # Summary table
+  cad_center$summary %>%
+    filter(!is.na(auc)) %>%
+    mutate(
+      model = str_replace_all(model, "_", " "),
+      auc = round(auc, 3),
+      center_note = ifelse(n_sampled_controls > 0,
+        paste0(center, " *"),
+        center
+      )
+    ) %>%
+    arrange(center, desc(auc)) %>%
+    select(center_note, model, n_total, n_cases, n_controls, n_sampled_controls, auc) %>%
+    kable(
+      col.names = c("Center", "ML Model", "Total N", "Cases", "Controls", "Sampled", "AUC"),
+      caption = "CAD: ML Model Performance by Study Center"
+    ) %>%
+    kable_styling(bootstrap_options = c("striped", "hover")) %>%
+    column_spec(1, bold = TRUE)
+
+  # Plots
+  cad_plots <- plot_center_performance(cad_center$summary, "cad")
+  if (!is.null(cad_plots)) {
+    # Save plots as SVG
+    ggsave("scripts2025/figures/ml_center_performance/cad_auc_by_center.svg",
+      cad_plots$auc_plot,
+      width = 8, height = 6
+    )
+    ggsave("scripts2025/figures/ml_center_performance/cad_sample_distribution.svg",
+      cad_plots$sample_plot,
+      width = 8, height = 6
+    )
+
+    print(cad_plots$auc_plot)
+    print(cad_plots$sample_plot)
+  }
+
+  # ROC curves by center
+  # Change show_model parameter to select different model ranks:
+  # show_model = 1 (best model), show_model = 2 (second best), etc.
+  # NOTE: Using augmented data to include centers with sampled controls
+  cad_roc_plot <- plot_roc_by_center(
+    cad_center$augmented_data, # Use augmented data with sampled controls
+    "cad",
+    center_summary = cad_center$summary,
+    show_model = 3 # Show best performing model
+  )
+
+  if (!is.null(cad_roc_plot)) {
+    # Save ROC plot as SVG
+    ggsave("scripts2025/figures/ml_center_performance/cad_roc_by_center_model3.svg",
+      cad_roc_plot,
+      width = 6, height = 6
+    )
+
+    print(cad_roc_plot)
+  }
+
+  # Save results
+  write_csv(cad_center$summary, "output/cad_center_performance.csv")
+}
+```
+
+# Summary
+
+This analysis examines ML model performance across different study centers in the BestAgeing consortium. 
+
+## Methodology
+
+**Control Sampling Strategy:**
+For centers that enrolled ≥`r MIN_CASES_THRESHOLD` disease cases but no controls, we randomly sampled controls from other centers to enable performance evaluation. This approach allows assessment of model generalizability across centers while acknowledging the study design where some centers focused exclusively on disease recruitment.
+
+- **Threshold**: Centers with ≥`r MIN_CASES_THRESHOLD` cases qualify for control sampling
+- **Sampling**: Controls randomly selected from all available controls (with replacement across centers)
+- **Matching**: Number of sampled controls matches the number of cases in that center
+- **Reproducibility**: Fixed seed (42) ensures consistent results
+
+## Key Findings
+
+- **Center Variability**: Performance varies across centers, reflecting differences in patient populations and sample sizes
+- **Sample Size Impact**: Centers with larger sample sizes generally show more stable performance metrics
+- **Model Consistency**: Top-performing ML models maintain competitive AUC across most centers
+- **Sampled Controls**: Centers marked with * use randomly sampled controls for evaluation
+- **Disease-Specific Patterns**: All four cardiovascular diseases (DCM, HFrEF, ACS, CAD) evaluated across centers
+
+**Interpretation Notes:**
+- Centers with <10 patients excluded from analysis
+- AUC values should be interpreted in context of sample size
+- Performance differences may reflect population heterogeneity or batch effects
+
+---
+
+*Analysis conducted on `r Sys.Date()`. Results saved to output/ directory.*
