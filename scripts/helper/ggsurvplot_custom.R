@@ -1,153 +1,150 @@
-
 # Get system name
-system_name <- Sys.info()["nodename"]
+# system_name <- Sys.info()["nodename"]
 mount_filesystem <- TRUE
 SAVE.files <- TRUE
 
-# Define library and data paths based on system
-if (system_name == "MacBook-Pro-CR-2065.local") {
-  lib_path <- .libPaths()[1]
-  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
-  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
-  if(mount_filesystem == TRUE) {
-    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
-    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
-  }
-} else {  # assuming cluster
-  .libPaths("/mnt/users/reich/programs/R43/lib")
-  lib_path <- "/mnt/users/reich/programs/R43/lib" 
-  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
-  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
-}
+data_path_bestageing2022 <- "/mnt/nas185/reich/rockerprojects/bestageing2022"
+data_path_BestAgeing <- "/mnt/nas185/reich/BestAgeing"
 
-library(glue, lib.loc = lib_path)
-library(dplyr, lib.loc = lib_path)
-library(tidyr, lib.loc = lib_path)
-library(stringr, lib.loc = lib_path)
-library(ggplot2, lib.loc = lib_path)
-library(ggrepel, lib.loc = lib_path)
-library(ggthemes, lib.loc = lib_path)
-library(survival, lib.loc = lib_path)
-library(survminer, lib.loc = lib_path)
+library(glue)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(ggrepel)
+library(ggthemes)
+library(survival)
+library(survminer)
 
 source(file = glue("{data_path_bestageing2022}/scripts/helper/custom_ggplot_theme.R"))
 
 # custom function
 
-ggsurvplot_custom <- function(fit_object, mytitle="", legend.title, myXbreaks=c(0,1,2,3,4,5), legend.labs, 
-                              line_colour = thematic::okabe_ito(6), plot_inlay=TRUE,
-                              save=TRUE, plotname) {
-  ## example: 
+ggsurvplot_custom <- function(
+  fit_object,
+  mytitle = "",
+  legend.title,
+  myXbreaks = c(0, 1, 2, 3, 4, 5),
+  legend.labs,
+  line_colour = thematic::okabe_ito(6),
+  plot_inlay = TRUE,
+  save = TRUE,
+  plotname
+) {
+  ## example:
   ## legend.title = "ESC HCM Risk-SCD Score" OR ""
   ## legend.labs = c("Genotype Negative", "Genotype Positive")
-  
-  ## start with main plot ---------------------------------------
-  plot1 <- ggsurvplot(fit_object, 
-                      conf.int=FALSE, 
-                      pval=FALSE, 
-                      censor=FALSE,  # not wanted by BM
-                      
-                      # risk table
-                      risk.table=TRUE, #xlim=c(0,20),
-                      #risk.table = "abs_pct",
-                      tables.theme = theme_cleantable(),
-                      #risk.table.height=.15,
-                      risk.table.fontsize = 4,
-                      risk.table.title = "No. at Risk",
-                      risk.table.y.text = FALSE,
-                      risk.table.height = 0.15,
-                      #tables.height= 0.2,
-                      risk.table.pos = "out",  # default
-                      
-                      title=mytitle,
-                     
-                      # legend
-                      legend.labs=legend.labs, 
-                      legend.title=legend.title,
 
-                      subtitle ="",
-                      xlab = "Time in Years", 
-                      ylab = "Survival propability\nAll-cause Death",
-                      # xlim = c(0, xlimyears),
-                      ylim = c(0,1),
-                      font.x = c(12),
-                      font.y = c(12),
-                      font.tickslab = c(12), 
-                      font.legend = c(12),
-                      
-                      #break.x.by = 10,  # affects both plot and table
-                      # style
-                      palette=c("nejm"),
-                      #ggtheme = ggthemes::theme_few()
+  ## start with main plot ---------------------------------------
+  plot1 <- ggsurvplot(
+    fit_object,
+    conf.int = FALSE,
+    pval = FALSE,
+    censor = FALSE, # not wanted by BM
+
+    # risk table
+    risk.table = TRUE, #xlim=c(0,20),
+    #risk.table = "abs_pct",
+    tables.theme = theme_cleantable(),
+    #risk.table.height=.15,
+    risk.table.fontsize = 4,
+    risk.table.title = "No. at Risk",
+    risk.table.y.text = FALSE,
+    risk.table.height = 0.15,
+    #tables.height= 0.2,
+    risk.table.pos = "out", # default
+
+    title = mytitle,
+
+    # legend
+    legend.labs = legend.labs,
+    legend.title = legend.title,
+
+    subtitle = "",
+    xlab = "Time in Years",
+    ylab = "Survival propability\nAll-cause Death",
+    # xlim = c(0, xlimyears),
+    ylim = c(0, 1),
+    font.x = c(12),
+    font.y = c(12),
+    font.tickslab = c(12),
+    font.legend = c(12),
+
+    #break.x.by = 10,  # affects both plot and table
+    # style
+    palette = c("nejm"),
+    #ggtheme = ggthemes::theme_few()
   )
   # customize further ---------------------------------------
   plot1$plot$theme$text <- element_text(family = "Arial")
-  plot1$plot <- plot1$plot + 
+  plot1$plot <- plot1$plot +
     scale_x_continuous(breaks = myXbreaks) #,   labels = c(30,50))
-  plot1$table$theme$plot.title <-  element_text(size = 12, color = "black", face = "bold", hjust = -0.1)
-  plot1$plot <- plot1$plot + 
-    theme_survminer(font.x = c(12, "bold", "black"),
-                    font.y = c(12, "bold", "black")) +
+  plot1$table$theme$plot.title <- element_text(size = 12, color = "black", face = "bold", hjust = -0.1)
+  plot1$plot <- plot1$plot +
+    theme_survminer(font.x = c(12, "bold", "black"), font.y = c(12, "bold", "black")) +
     ## CUSTOM THEME ADDED 2023-30-07
-    theme_minimal(base_size = 16, base_family = 'Arial')+
+    theme_minimal(base_size = 16, base_family = 'Arial') +
     scale_fill_manual(values = line_colour) +
     my_base_theme()
-  
-  
-  if (plot_inlay==TRUE) {
+
+  if (plot_inlay == TRUE) {
     ## add inlay plot ---------------------------------------
-    subplot <- ggsurvplot(fit_object, 
-                          conf.int=FALSE, 
-                          pval=FALSE, 
-                          censor=FALSE,
-                          
-                          # risk table
-                          risk.table=FALSE, #xlim=c(0,20),
-                          #risk.table = "abs_pct",
-                          tables.theme = theme_cleantable(),
-                          #risk.table.height=.15,
-                          # legend
-                          legend = "none",
-                          legend.title="",
-                          title="",
-                          subtitle ="",
-                          xlab = "", 
-                          ylab = "",
-                          # xlim = c(0, 18),
-                          ylim = c(0.75,1),
-                          font.x = c(12),
-                          font.y = c(12),
-                          font.tickslab = c(12), 
-                          font.legend = c(12),
-                          
-                          # style
-                          palette=c("nejm"),
-                          #ggtheme = ggthemes::theme_few()
+    subplot <- ggsurvplot(
+      fit_object,
+      conf.int = FALSE,
+      pval = FALSE,
+      censor = FALSE,
+
+      # risk table
+      risk.table = FALSE, #xlim=c(0,20),
+      #risk.table = "abs_pct",
+      tables.theme = theme_cleantable(),
+      #risk.table.height=.15,
+      # legend
+      legend = "none",
+      legend.title = "",
+      title = "",
+      subtitle = "",
+      xlab = "",
+      ylab = "",
+      # xlim = c(0, 18),
+      ylim = c(0.75, 1),
+      font.x = c(12),
+      font.y = c(12),
+      font.tickslab = c(12),
+      font.legend = c(12),
+
+      # style
+      palette = c("nejm"),
+      #ggtheme = ggthemes::theme_few()
     )
-    
+
     # make inlay plot transparent ---------------------------------------
-    subplot$plot <- subplot$plot + 
-      scale_y_continuous(breaks = c(0.7, 0.8, 0.9, 1), limits = c(0.6,1)) +
-      scale_x_continuous(breaks = myXbreaks)+
+    subplot$plot <- subplot$plot +
+      scale_y_continuous(breaks = c(0.7, 0.8, 0.9, 1), limits = c(0.6, 1)) +
+      scale_x_continuous(breaks = myXbreaks) +
       theme(
-        panel.background = element_rect(fill = "transparent",
-                                        colour = NA_character_), # necessary to avoid drawing panel outline
+        panel.background = element_rect(fill = "transparent", colour = NA_character_), # necessary to avoid drawing panel outline
         panel.grid.major = element_blank(), # get rid of major grid
         panel.grid.minor = element_blank(), # get rid of minor grid
-        plot.background = element_rect(fill = "transparent",
-                                       colour = NA_character_), # necessary to avoid drawing plot outline
+        plot.background = element_rect(fill = "transparent", colour = NA_character_), # necessary to avoid drawing plot outline
         legend.background = element_rect(fill = "transparent"),
         legend.box.background = element_rect(fill = "transparent"),
         legend.key = element_rect(fill = "transparent")
       )
-    
+
     ## add plots  ---------------------------------------
     plot1$plot <- plot1$plot +
-      annotation_custom(grob = ggplotGrob(subplot$plot),   # dont get why smaller plot suddenly scales wrong...
-                        # position of subplot
-                        xmin = 1.5, xmax=17, ymin = -0.05 , ymax = 0.8)
+      annotation_custom(
+        grob = ggplotGrob(subplot$plot), # dont get why smaller plot suddenly scales wrong...
+        # position of subplot
+        xmin = 1.5,
+        xmax = 17,
+        ymin = -0.05,
+        ymax = 0.8
+      )
   }
-  
+
   if (save == TRUE) {
     #save
     ## https://github.com/kassambara/survminer/issues/152
@@ -171,122 +168,132 @@ ggsurvplot_custom <- function(fit_object, mytitle="", legend.title, myXbreaks=c(
       height = 7
     )
   }
-  
+
   return(plot1)
 }
 
 
-
-
 # ggsurvplot POSTER IFL ---------------------------------------------------
 
-ggsurvplot_custom_poster <- function(fit_object, mytitle="", legend.title, myXbreaks=c(0,1,2,3,4,5), legend.labs, 
-                                     line_colour = c("#0072B2","#009E73", "#E69F00"), plot_inlay=TRUE,
-                                     save=TRUE, plotname, ...) {
-  ## example: 
+ggsurvplot_custom_poster <- function(
+  fit_object,
+  mytitle = "",
+  legend.title,
+  myXbreaks = c(0, 1, 2, 3, 4, 5),
+  legend.labs,
+  line_colour = c("#0072B2", "#009E73", "#E69F00"),
+  plot_inlay = TRUE,
+  save = TRUE,
+  plotname,
+  ...
+) {
+  ## example:
   ## legend.title = "ESC HCM Risk-SCD Score" OR ""
   ## legend.labs = c("Genotype Negative", "Genotype Positive")
-  
-  ## start with main plot ---------------------------------------
-  plot1 <- ggsurvplot(fit_object, 
-                      conf.int=FALSE, 
-                      pval=FALSE, 
-                      censor=FALSE,  # not wanted by BM
-                      
-                      # risk table
-                      risk.table=FALSE, #xlim=c(0,20),
-                      #risk.table = "abs_pct",
 
-                      title=NULL,
-                      
-                      # legend
-                      legend.labs=legend.labs, 
-                      legend.title=legend.title,
-                      
-                      subtitle ="",
-                      xlab = "Time in Years", 
-                      ylab = "Survival propability\nAll-cause Death",
-                      # xlim = c(0, xlimyears),
-                      ylim = c(0.5, 1),
-                      font.x = c(12),
-                      font.y = c(12),
-                      font.tickslab = c(12), 
-                      font.legend = c(12),
-                      
-                      #break.x.by = 10,  # affects both plot and table
-                      # style
-                      palette = line_colour # c("#0072B2","#009E73", "#E69F00")  changed ordering of thematic::okabe_ito(6)  # Set the colors #E69F00
-                      # "#E69F00" "#009E73" "#0072B2"
-                      #ggtheme = ggthemes::theme_few()
+  ## start with main plot ---------------------------------------
+  plot1 <- ggsurvplot(
+    fit_object,
+    conf.int = FALSE,
+    pval = FALSE,
+    censor = FALSE, # not wanted by BM
+
+    # risk table
+    risk.table = FALSE, #xlim=c(0,20),
+    #risk.table = "abs_pct",
+
+    title = NULL,
+
+    # legend
+    legend.labs = legend.labs,
+    legend.title = legend.title,
+
+    subtitle = "",
+    xlab = "Time in Years",
+    ylab = "Survival propability\nAll-cause Death",
+    # xlim = c(0, xlimyears),
+    ylim = c(0.5, 1),
+    font.x = c(12),
+    font.y = c(12),
+    font.tickslab = c(12),
+    font.legend = c(12),
+
+    #break.x.by = 10,  # affects both plot and table
+    # style
+    palette = line_colour # c("#0072B2","#009E73", "#E69F00")  changed ordering of thematic::okabe_ito(6)  # Set the colors #E69F00
+    # "#E69F00" "#009E73" "#0072B2"
+    #ggtheme = ggthemes::theme_few()
   )
   # customize further ---------------------------------------
   plot1$plot$theme$text <- element_text(family = "Arial")
-  plot1$plot <- plot1$plot + 
+  plot1$plot <- plot1$plot +
     scale_x_continuous(breaks = myXbreaks) #,   labels = c(30,50))
-  plot1$table$theme$plot.title <-  element_text(size = 12, color = "black", face = "bold", hjust = -0.1)
-  plot1$plot <- plot1$plot + 
-    theme_survminer(font.x = c(12, "bold", "black"),
-                    font.y = c(12, "bold", "black")) +
+  plot1$table$theme$plot.title <- element_text(size = 12, color = "black", face = "bold", hjust = -0.1)
+  plot1$plot <- plot1$plot +
+    theme_survminer(font.x = c(12, "bold", "black"), font.y = c(12, "bold", "black")) +
     ## CUSTOM THEME ADDED 2023-30-07
-    theme_minimal(base_size = 16, base_family = 'Arial')+
+    theme_minimal(base_size = 16, base_family = 'Arial') +
     scale_fill_manual(values = thematic::okabe_ito(6)) +
     my_base_theme()
-  
-  
-  if (plot_inlay==TRUE) {
+
+  if (plot_inlay == TRUE) {
     ## add inlay plot ---------------------------------------
-    subplot <- ggsurvplot(fit_object, 
-                          conf.int=FALSE, 
-                          pval=FALSE, 
-                          censor=FALSE,
-                          
-                          # risk table
-                          risk.table=FALSE, #xlim=c(0,20),
-                          #risk.table = "abs_pct",
-                          tables.theme = theme_cleantable(),
-                          #risk.table.height=.15,
-                          # legend
-                          legend = "none",
-                          legend.title="",
-                          title="",
-                          subtitle ="",
-                          xlab = "", 
-                          ylab = "",
-                          # xlim = c(0, 18),
-                          ylim = c(0.75,1),
-                          font.x = c(12),
-                          font.y = c(12),
-                          font.tickslab = c(12), 
-                          font.legend = c(12),
-                          
-                          # style
-                          palette=c("nejm"),
-                          #ggtheme = ggthemes::theme_few()
+    subplot <- ggsurvplot(
+      fit_object,
+      conf.int = FALSE,
+      pval = FALSE,
+      censor = FALSE,
+
+      # risk table
+      risk.table = FALSE, #xlim=c(0,20),
+      #risk.table = "abs_pct",
+      tables.theme = theme_cleantable(),
+      #risk.table.height=.15,
+      # legend
+      legend = "none",
+      legend.title = "",
+      title = "",
+      subtitle = "",
+      xlab = "",
+      ylab = "",
+      # xlim = c(0, 18),
+      ylim = c(0.75, 1),
+      font.x = c(12),
+      font.y = c(12),
+      font.tickslab = c(12),
+      font.legend = c(12),
+
+      # style
+      palette = c("nejm"),
+      #ggtheme = ggthemes::theme_few()
     )
-    
+
     # make inlay plot transparent ---------------------------------------
-    subplot$plot <- subplot$plot + 
-      scale_y_continuous(breaks = c(0.7, 0.8, 0.9, 1), limits = c(0.6,1)) +
-      scale_x_continuous(breaks = myXbreaks)+
+    subplot$plot <- subplot$plot +
+      scale_y_continuous(breaks = c(0.7, 0.8, 0.9, 1), limits = c(0.6, 1)) +
+      scale_x_continuous(breaks = myXbreaks) +
       theme(
-        panel.background = element_rect(fill = "transparent",
-                                        colour = NA_character_), # necessary to avoid drawing panel outline
+        panel.background = element_rect(fill = "transparent", colour = NA_character_), # necessary to avoid drawing panel outline
         panel.grid.major = element_blank(), # get rid of major grid
         panel.grid.minor = element_blank(), # get rid of minor grid
-        plot.background = element_rect(fill = "transparent",
-                                       colour = NA_character_), # necessary to avoid drawing plot outline
+        plot.background = element_rect(fill = "transparent", colour = NA_character_), # necessary to avoid drawing plot outline
         legend.background = element_rect(fill = "transparent"),
         legend.box.background = element_rect(fill = "transparent"),
         legend.key = element_rect(fill = "transparent")
       )
-    
+
     ## add plots  ---------------------------------------
     plot1$plot <- plot1$plot +
-      annotation_custom(grob = ggplotGrob(subplot$plot),   # dont get why smaller plot suddenly scales wrong...
-                        # position of subplot
-                        xmin = 1.5, xmax=17, ymin = -0.05 , ymax = 0.8)
+      annotation_custom(
+        grob = ggplotGrob(subplot$plot), # dont get why smaller plot suddenly scales wrong...
+        # position of subplot
+        xmin = 1.5,
+        xmax = 17,
+        ymin = -0.05,
+        ymax = 0.8
+      )
   }
-  
+
   if (save == TRUE) {
     #save
     ## https://github.com/kassambara/survminer/issues/152
@@ -310,67 +317,72 @@ ggsurvplot_custom_poster <- function(fit_object, mytitle="", legend.title, myXbr
       height = 3
     )
   }
-  
+
   return(plot1)
 }
 
 
-
 # ggsurvplot custom paper no labels ---------------------------------------
 
-ggsurvplot_custom_poster_nolabels <- function(fit_object, mytitle="", myXbreaks=c(0,1,2,3,4,5), 
-                                     line_colour = c("#0072B2","#009E73", "#E69F00"), plot_inlay=TRUE,
-                                     save=TRUE, plotname, ...) {
-  ## example: 
+ggsurvplot_custom_poster_nolabels <- function(
+  fit_object,
+  mytitle = "",
+  myXbreaks = c(0, 1, 2, 3, 4, 5),
+  line_colour = c("#0072B2", "#009E73", "#E69F00"),
+  plot_inlay = TRUE,
+  save = TRUE,
+  plotname,
+  ...
+) {
+  ## example:
   ## legend.title = "ESC HCM Risk-SCD Score" OR ""
   ## legend.labs = c("Genotype Negative", "Genotype Positive")
-  
+
   ## start with main plot ---------------------------------------
-  plot1 <- ggsurvplot(fit_object, 
-                      conf.int=FALSE, 
-                      pval=FALSE, 
-                      censor=FALSE,  # not wanted by BM
-                      
-                      # risk table
-                      risk.table=FALSE, #xlim=c(0,20),
-                      #risk.table = "abs_pct",
-                      
-                      title=NULL,
-                      
-                      # legend removed here
-                      legend = "none", 
-                      
-                      subtitle ="",
-                      xlab = "", 
-                      ylab = "",
-                      # xlim = c(0, xlimyears),
-                      ylim = c(0.5, 1),
-                      font.x = c(12),
-                      font.y = c(12),
-                      font.tickslab = c(12), 
-                      font.legend = c(12),
-                      
-                      #break.x.by = 10,  # affects both plot and table
-                      # style
-                      palette = line_colour # c("#0072B2","#009E73", "#E69F00")  changed ordering of thematic::okabe_ito(6)  # Set the colors #E69F00
-                      # "#E69F00" "#009E73" "#0072B2"
-                      #ggtheme = ggthemes::theme_few()
+  plot1 <- ggsurvplot(
+    fit_object,
+    conf.int = FALSE,
+    pval = FALSE,
+    censor = FALSE, # not wanted by BM
+
+    # risk table
+    risk.table = FALSE, #xlim=c(0,20),
+    #risk.table = "abs_pct",
+
+    title = NULL,
+
+    # legend removed here
+    legend = "none",
+
+    subtitle = "",
+    xlab = "",
+    ylab = "",
+    # xlim = c(0, xlimyears),
+    ylim = c(0.5, 1),
+    font.x = c(12),
+    font.y = c(12),
+    font.tickslab = c(12),
+    font.legend = c(12),
+
+    #break.x.by = 10,  # affects both plot and table
+    # style
+    palette = line_colour # c("#0072B2","#009E73", "#E69F00")  changed ordering of thematic::okabe_ito(6)  # Set the colors #E69F00
+    # "#E69F00" "#009E73" "#0072B2"
+    #ggtheme = ggthemes::theme_few()
   )
   # customize further ---------------------------------------
   plot1$plot$theme$text <- element_text(family = "Arial")
-  plot1$plot <- plot1$plot + 
+  plot1$plot <- plot1$plot +
     scale_x_continuous(breaks = myXbreaks) #,   labels = c(30,50))
-  plot1$table$theme$plot.title <-  element_text(size = 12, color = "black", face = "bold", hjust = -0.1)
-  plot1$plot <- plot1$plot + 
-    theme_survminer(font.x = c(12, "bold", "black"),
-                    font.y = c(12, "bold", "black")) +
+  plot1$table$theme$plot.title <- element_text(size = 12, color = "black", face = "bold", hjust = -0.1)
+  plot1$plot <- plot1$plot +
+    theme_survminer(font.x = c(12, "bold", "black"), font.y = c(12, "bold", "black")) +
     ## CUSTOM THEME ADDED 2023-30-07
-    theme_minimal(base_size = 16, base_family = 'Arial')+
+    theme_minimal(base_size = 16, base_family = 'Arial') +
     scale_fill_manual(values = thematic::okabe_ito(6)) +
-    my_base_theme()+
+    my_base_theme() +
     theme(legend.position = "none")
-  
-  
+
   if (save == TRUE) {
     #save
     ## https://github.com/kassambara/survminer/issues/152
@@ -394,9 +406,6 @@ ggsurvplot_custom_poster_nolabels <- function(fit_object, mytitle="", myXbreaks=
       height = 3
     )
   }
-  
+
   return(plot1)
 }
-
-
-

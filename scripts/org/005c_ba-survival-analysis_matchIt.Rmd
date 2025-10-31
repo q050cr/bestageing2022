@@ -23,27 +23,15 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-# Get system name
-system_name <- Sys.info()["nodename"]
-mount_filesystem <- TRUE
+
+# ran again on 20251029 (changed colour of KM plots to fit)
+
+# Set paths
+data_path_bestageing2022 <- "/mnt/nas185/reich/rockerprojects/bestageing2022"
+data_path_BestAgeing <- "/mnt/nas185/reich/BestAgeing"
 SAVE.files <- TRUE
 miRetrieveBiomarker <- TRUE
 
-# Define library and data paths based on system
-if (system_name == "MacBook-Pro-CR-2065.local") {
-  lib_path <- .libPaths()[1]
-  data_path_bestageing2022 <- "/Volumes/T7CR/data/bestageing2022"
-  data_path_BestAgeing <- "/Volumes/T7CR/data/BestAgeing"
-  if(mount_filesystem == TRUE) {
-    data_path_bestageing2022 <- "/Users/christophreich/Desktop/mount/rockerprojects/bestageing2022"  # mount -t nfs 10.55.1.185:/data/users/reich/ ~/Desktop/mount/
-    data_path_BestAgeing <- "/Users/christophreich/Desktop/mount/BestAgeing"
-  }
-} else {  # assuming cluster
-  .libPaths("/mnt/users/reich/programs/R43/lib")
-  lib_path <- "/mnt/users/reich/programs/R43/lib" 
-  data_path_bestageing2022 <- "/mnt/users/reich/rockerprojects/bestageing2022"
-  data_path_BestAgeing <- "/mnt/users/reich/BestAgeing"
-}
 
 knitr::opts_chunk$set(echo = FALSE)
 figurespath <- paste0(data_path_bestageing2022, "/reports/", 
@@ -57,36 +45,35 @@ caching <- FALSE
 ![AG Meder](../../img/meder_presentation_heart.png)
 
 ```{r dependencies}
-library(readxl, lib.loc = lib_path)
-library(glue, lib.loc = lib_path)
-library(janitor, lib.loc = lib_path)
-library(dplyr, lib.loc = lib_path)
-library(tidyr, lib.loc = lib_path)
-library(forcats, lib.loc = lib_path)
-library(stringr, lib.loc = lib_path)
-library(purrr, lib.loc = lib_path)
-library(ggplot2, lib.loc = lib_path)
-library(ggrepel, lib.loc = lib_path)
-library(ggthemes, lib.loc = lib_path)
-library(kableExtra, lib.loc = lib_path)
-library(skimr, lib.loc = lib_path)
-library(tableone, lib.loc = lib_path)
-library(gt, lib.loc = lib_path)
-library(MatchIt, lib.loc = lib_path)
-library(tidymodels, lib.loc = lib_path)
-library(survival, lib.loc = lib_path)
-library(survminer, lib.loc = lib_path)
-library(gginnards, lib.loc = lib_path)
-library(ggsci, lib.loc = lib_path)
-library(lubridate, lib.loc = lib_path)
+library(readxl)
+library(glue)
+library(janitor)
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(stringr)
+library(purrr)
+library(ggplot2)
+library(ggrepel)
+library(ggthemes)
+library(kableExtra)
+library(skimr)
+library(tableone)
+library(gt)
+library(MatchIt)
+library(tidymodels)
+library(survival)
+library(survminer)
+library(gginnards)
+library(ggsci)
+library(lubridate)
 source(glue("{data_path_bestageing2022}/scripts/helper/ggsurvplot_custom.R"))
 
-library(lubridate, lib.loc = lib_path)  # datetimes
-library(factoextra, lib.loc = lib_path)  # plotting of kmeans
+library(lubridate)  # datetimes
+library(factoextra)  # plotting of kmeans
 
 conflicted::conflict_prefer("expand", "tidyr")
 conflicted::conflicts_prefer(dplyr::filter)
-caching <- FALSE
 
 # gt star formatter https://github.com/rstudio/gt/issues/187
 
@@ -385,32 +372,33 @@ for (mydisease in 1:length(model.disease.vector)) {
     # easy KM TERTILES
     sfit_diseases <- survfit(Surv(time5y, status5y) ~ model.pred.groups, data = survival_dat1.disease)
     logrank_test <- survdiff(Surv(time5y, status5y) ~ model.pred.groups, data = survival_dat1.disease)
-    surv.plotname <- glue("{data_path_bestageing2022}/output/plots/survival/005c_selected_matched/005c_20240121_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_selected_matchIt.svg")
+    surv.plotname <- glue("{data_path_bestageing2022}/output/plots/survival/005c_selected_matched/005c_20251029_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_selected_matchIt.svg")
     ggsurvplot_custom_poster(fit_object = sfit_diseases, mytitle=NULL, legend.title = "", 
                       myXbreaks = c(1, 2,3,4, 5),
+                      line_colour = c("#009E73", "#0072B2", "#E69F00"), 
                       legend.labs = c("low", "intermediate", "high"), plot_inlay = FALSE,
                       save = TRUE, plotname = surv.plotname)
     
     #     
-    surv.plotname_nolabels <- glue("{data_path_bestageing2022}/output/plots/survival/005c_selected_matched/005c_20240121_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_selected_matchIt_nolabels.svg")
+    surv.plotname_nolabels <- glue("{data_path_bestageing2022}/output/plots/survival/005c_selected_matched/005c_20251029_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_selected_matchIt_nolabels.svg")
     ggsurvplot_custom_poster_nolabels(fit_object = sfit_diseases, mytitle=NULL, legend.title = "", 
                       myXbreaks = c(1, 2,3,4, 5),
+                      line_colour = c("#009E73", "#0072B2", "#E69F00"), 
                       legend.labs = c("low", "intermediate", "high"), plot_inlay = FALSE,
                       save = TRUE, plotname = surv.plotname_nolabels)
     
-    
-    
+
     # easy KM low-high 
     sfit_diseases_BIN <- survfit(Surv(time5y, status5y) ~ model.pred.groups2, data = survival_dat1.disease)
     logrank_test_BIN <- survdiff(Surv(time5y, status5y) ~ model.pred.groups2, data = survival_dat1.disease)
     
-    surv.plotname_BIN <- glue("{data_path_bestageing2022}/output/plots/survival/005c_selected_BINARY_matched/005c_20240121_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_selected_BINARY_matchIt.svg")
+    surv.plotname_BIN <- glue("{data_path_bestageing2022}/output/plots/survival/005c_selected_BINARY_matched/005c_20251029_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_selected_BINARY_matchIt.svg")
     ggsurvplot_custom_poster(fit_object = sfit_diseases_BIN, mytitle=NULL, legend.title = "", 
                              line_colour = c("#009E73", "#E69F00"), myXbreaks = c(1, 2,3,4, 5),
                              legend.labs = c("low", "high"), plot_inlay = FALSE,
                              save = TRUE, plotname = surv.plotname_BIN)
     
-    surv.plotname_BIN_nolabels <- glue("{data_path_bestageing2022}/output/plots/survival/005c_selected_BINARY_matched/005c_20240121_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_selected_BINARY_matchIt_nolabels.svg")
+    surv.plotname_BIN_nolabels <- glue("{data_path_bestageing2022}/output/plots/survival/005c_selected_BINARY_matched/005c_20251029_KM_{toupper(model.disease.vector[mydisease])}_{wflow_id_vector[mymodel]}_selected_BINARY_matchIt_nolabels.svg")
     ggsurvplot_custom_poster_nolabels(fit_object = sfit_diseases_BIN, mytitle=NULL, 
                                       line_colour = c("#009E73", "#E69F00"), myXbreaks = c(1, 2,3,4, 5),
                                       legend.labs = c("none"), plot_inlay = FALSE,
@@ -562,7 +550,7 @@ for (mydisease in 1:length(model.disease.vector)) {
     
     ## export to csv
     tab1MAT <- print(tab1, nonnormal = biomarkers, showAllLevels = FALSE, formatOptions = list(big.mark = ","), quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
-    write.csv2(tab1MAT, file = glue("{data_path_bestageing2022}/output/tables/survival/selected_APM_matched_TERTILES/005c_20240121_survTable-{model.disease.vector[mydisease]}_{wflow_id_vector[mymodel]}_matched.csv"))
+    write.csv2(tab1MAT, file = glue("{data_path_bestageing2022}/output/tables/survival/selected_APM_matched_TERTILES/005c_20251029_survTable-{model.disease.vector[mydisease]}_{wflow_id_vector[mymodel]}_matched.csv"))
     
     kableone(tab1, nonnormal = biomarkers, caption="Patient characteristics stratified by predicted disease probability tertiles") %>% 
       kable_classic() -> kable.table.surv
@@ -581,7 +569,7 @@ for (mydisease in 1:length(model.disease.vector)) {
     
     ## export to csv
     tab1MAT_BIN <- print(tab1_BIN, nonnormal = biomarkers, showAllLevels = FALSE, formatOptions = list(big.mark = ","), quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
-    write.csv2(tab1MAT_BIN, file = glue("{data_path_bestageing2022}/output/tables/survival/selected_APM_matched_BINARY/005c_20240121_survTable-{model.disease.vector[mydisease]}_{wflow_id_vector[mymodel]}_matched.csv"))
+    write.csv2(tab1MAT_BIN, file = glue("{data_path_bestageing2022}/output/tables/survival/selected_APM_matched_BINARY/005c_20251029_survTable-{model.disease.vector[mydisease]}_{wflow_id_vector[mymodel]}_matched.csv"))
     
     kableone(tab1_BIN, nonnormal = biomarkers, caption="Patient characteristics stratified by predicted disease probability tertiles") %>% 
       kable_classic() -> kable.table.surv
@@ -602,7 +590,7 @@ for (mydisease in 1:length(model.disease.vector)) {
       columns = c(`P-val (tertile split)`, "stars3"),
       pattern = "{1} {2}"
     ) %>% 
-    gtsave(glue("{data_path_bestageing2022}/output/tables/survival/logrank/005c_20240121_{toupper(model.disease.vector[mydisease])}_table_logrank_pval_APM_matched.docx"))  # selected model
+    gtsave(glue("{data_path_bestageing2022}/output/tables/survival/logrank/005c_20251029_{toupper(model.disease.vector[mydisease])}_table_logrank_pval_APM_matched.docx"))  # selected model
   
   # next DISEASE
 }

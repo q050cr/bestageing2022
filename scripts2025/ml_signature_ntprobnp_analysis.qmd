@@ -395,16 +395,40 @@ analyze_ml_performance <- function(data, disease_name, successful_models) {
 # Load cleaned data
 dcm_cleaned <- readRDS("revision2025/data/dcm_cleaned_data.rds")
 hfref_cleaned <- readRDS("revision2025/data/hfref_cleaned_data.rds")
+acs_cleaned <- readRDS("revision2025/data/acs_cleaned_data.rds")
+cad_cleaned <- readRDS("revision2025/data/cad_cleaned_data.rds")
 
 # Add predictions for DCM
+# GLM only
 dcm_ml_result <- add_ml_predictions(dcm_cleaned$glm_data, "dcm")
 dcm_data_with_ml <- dcm_ml_result$data
 dcm_successful_models <- dcm_ml_result$successful_models
+
+# FULL
+dcm_ml_results_full <- add_ml_predictions(dcm_cleaned$full_data, "dcm")
+dcm_data_with_ml_full <- dcm_ml_results_full$data
+dcm_successful_models_full <- dcm_ml_results_full$successful_models
+
 
 # Add predictions for HFrEF
 hfref_ml_result <- add_ml_predictions(hfref_cleaned$glm_data, "hfref")
 hfref_data_with_ml <- hfref_ml_result$data
 hfref_successful_models <- hfref_ml_result$successful_models
+
+# FULL
+hfref_ml_results_full <- add_ml_predictions(hfref_cleaned$full_data, "hfref")
+hfref_data_with_ml_full <- hfref_ml_results_full$data
+hfref_successful_models_full <- hfref_ml_results_full$successful_models
+
+# Add predictions for ACS (glm = full, since no ntprobnp analysis possible)
+acs_ml_result <- add_ml_predictions(acs_cleaned$glm_data, "acs")
+acs_data_with_ml <- acs_ml_result$data
+acs_successful_models <- acs_ml_result$successful_models
+
+# Add predictions for CAD
+cad_ml_result <- add_ml_predictions(cad_cleaned$glm_data, "cad")
+cad_data_with_ml <- cad_ml_result$data
+cad_successful_models <- cad_ml_result$successful_models
 
 # Analyze ML model performance
 dcm_ml_performance <- analyze_ml_performance(
@@ -412,17 +436,49 @@ dcm_ml_performance <- analyze_ml_performance(
   "dcm",
   dcm_successful_models
 )
+dcm_ml_performance_full <- analyze_ml_performance(
+  dcm_data_with_ml_full,
+  "dcm",
+  dcm_successful_models_full
+)
 hfref_ml_performance <- analyze_ml_performance(
   hfref_data_with_ml,
   "hfref",
   hfref_successful_models
 )
+hfref_ml_performance_full <- analyze_ml_performance(
+  hfref_data_with_ml_full,
+  "hfref",
+  hfref_successful_models_full
+)
+acs_ml_performance <- analyze_ml_performance(
+  acs_data_with_ml,
+  "acs",
+  acs_successful_models
+)
+cad_ml_performance <- analyze_ml_performance(
+  cad_data_with_ml,
+  "cad",
+  cad_successful_models
+)
 
+# Save results
 saveRDS(dcm_ml_result, "revision2025/data/dcm_ml_result.rds")
 saveRDS(dcm_ml_performance, "revision2025/data/dcm_ml_performance.rds")
+saveRDS(dcm_ml_results_full, "revision2025/data/dcm_ml_result_full.rds")
+saveRDS(dcm_ml_performance_full, "revision2025/data/dcm_ml_performance_full.rds")
 
 saveRDS(hfref_ml_result, "revision2025/data/hfref_ml_result.rds")
 saveRDS(hfref_ml_performance, "revision2025/data/hfref_ml_performance.rds")
+saveRDS(hfref_ml_results_full, "revision2025/data/hfref_ml_result_full.rds")
+saveRDS(hfref_ml_performance_full, "revision2025/data/hfref_ml_performance_full.rds")
+
+# glm data = ntprobnp data here
+saveRDS(acs_ml_result, "revision2025/data/acs_ml_result.rds")
+saveRDS(acs_ml_performance, "revision2025/data/acs_ml_performance.rds")
+
+saveRDS(cad_ml_result, "revision2025/data/cad_ml_result.rds")
+saveRDS(cad_ml_performance, "revision2025/data/cad_ml_performance.rds")
 
 ```
 

@@ -96,8 +96,21 @@ path2dataprocessed_hfref <- glue(
     "{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_hfref_data01.rds"
   )
 )
+path2dataprocessed_acs <- glue(
+  glue(
+    "{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_acs_data01.rds"
+  )
+)
+path2dataprocessed_cad <- glue(
+  glue(
+    "{data_path_bestageing2022}/data/Rdata/processed_disease_data/001c_cad_data01.rds"
+  )
+)
+
 data_processed_dcm <- readRDS(path2dataprocessed_dcm)
 data_processed_hfref <- readRDS(path2dataprocessed_hfref)
+data_processed_acs <- readRDS(path2dataprocessed_acs)
+data_processed_cad <- readRDS(path2dataprocessed_cad)
 
 # Load metadata with correct columns for each group
 meta_dcm <- read_excel("/mnt/nas185/reich/BestAgeing/data/pheno_dcm.xlsx") %>%
@@ -130,6 +143,26 @@ meta_hfref <- read_excel(
     .keep = "none"
   )
 
+meta_acs <- read_excel(
+  "/mnt/nas185/reich/BestAgeing/data/pheno_acs.xlsx"
+) %>%
+  mutate(
+    BestAgeingCode,
+    phenodat = "acs",
+    crea = as.numeric(`ACS-Lab-Cr`),
+    .keep = "none"
+  )
+
+meta_cad <- read_excel(
+  "/mnt/nas185/reich/BestAgeing/data/pheno_cad.xlsx"
+) %>%
+  mutate(
+    BestAgeingCode,
+    phenodat = "cad",
+    crea = as.numeric(`CAD-Lab-Cr`),
+    .keep = "none"
+  )
+
 meta_control <- read_excel(
   "/mnt/nas185/reich/BestAgeing/data/pheno_controls.xlsx"
 ) %>%
@@ -141,7 +174,7 @@ meta_control <- read_excel(
     .keep = "none"
   )
 
-meta_all <- bind_rows(meta_dcm, meta_hfref, meta_control)
+meta_all <- bind_rows(meta_dcm, meta_hfref, meta_acs, meta_cad, meta_control)
 
 # Merge with processed data and add preprocessing column
 dcm_merged <- data_processed_dcm %>%
@@ -151,6 +184,14 @@ dcm_merged <- data_processed_dcm %>%
 hfref_merged <- data_processed_hfref %>%
   left_join(meta_all, by = c("pat_id" = "BestAgeingCode")) %>%
   mutate(preprocessing = "hfref_pipeline")
+
+acs_merged <- data_processed_acs %>%
+  left_join(meta_all, by = c("pat_id" = "BestAgeingCode")) %>%
+  mutate(preprocessing = "acs_pipeline")
+
+cad_merged <- data_processed_cad %>%
+  left_join(meta_all, by = c("pat_id" = "BestAgeingCode")) %>%
+  mutate(preprocessing = "cad_pipeline")
 
 # Data CLEANING for NT-proBNP analysis --------------------------------
 clean_ntprobnp_data <- function(data, disease_name) {
@@ -225,9 +266,25 @@ clean_ntprobnp_data <- function(data, disease_name) {
   return(list(full_data = data, glm_data = data_glm))
 }
 
-# Clean data for both datasets
+# Clean data for datasets with NT-proBNP (DCM and HFrEF)
 dcm_cleaned <- clean_ntprobnp_data(dcm_merged, "dcm")
 hfref_cleaned <- clean_ntprobnp_data(hfref_merged, "hfref")
+
+# For ACS and CAD: No NT-proBNP available, just save the merged data as "cleaned"
+# These can still be used for ML models and other analyses that don't require NT-proBNP
+cat("\nACS and CAD: No NT-proBNP data available\n")
+cat("Creating cleaned datasets without NT-proBNP filtering for these phenotypes\n")
+
+# Create structure similar to cleaned data but without NT-proBNP processing
+acs_cleaned <- list(
+  full_data = acs_merged,
+  glm_data = acs_merged # No filtering applied
+)
+
+cad_cleaned <- list(
+  full_data = cad_merged,
+  glm_data = cad_merged # No filtering applied
+)
 
 # Ensure imputation values are stored (robust handling)
 # This handles cases where the function was updated after data processing
@@ -265,6 +322,7 @@ if (is.null(attr(hfref_cleaned$full_data, "control_imputation_value"))) {
     "\n"
   )
 }
+# Note: ACS and CAD don't have NT-proBNP data, so no imputation values to store
 
 # ------------------#
 # DE Analysis Function (adapted from 001c_model_de_analysis_DET_MATRIX_recalc_ci_and_matched.R) ---------------------------
@@ -1449,3 +1507,5 @@ if (length(hfref_reclass) > 0) {
 
 saveRDS(dcm_cleaned, "revision2025/data/dcm_cleaned_data.rds")
 saveRDS(hfref_cleaned, "revision2025/data/hfref_cleaned_data.rds")
+saveRDS(acs_cleaned, "revision2025/data/acs_cleaned_data.rds")
+saveRDS(cad_cleaned, "revision2025/data/cad_cleaned_data.rds")
